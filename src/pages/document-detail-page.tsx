@@ -159,29 +159,12 @@ export default function DocumentDetailPage() {
       if (file.fileID) {
         console.log('尝试从前端存储下载文件:', file.fileID)
         try {
-          const storageModule = await import('@/lib/storage')
-          const result = await storageModule.storageService.downloadFile(file.fileID)
-          
-          if (result.success && result.blob) {
-            console.log('前端存储下载成功')
-            const url = URL.createObjectURL(result.blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = file.name
-            a.style.display = 'none'
-            document.body.appendChild(a)
-            a.click()
-            document.body.removeChild(a)
-            URL.revokeObjectURL(url)
-            
-            toast({
-              title: "下载成功",
-              description: `文件 "${file.name}" 已开始下载`,
-            })
-            return
-          } else {
-            console.warn('前端存储下载失败:', result.message)
-          }
+          // 注意：这里不再使用storageService.downloadFile，因为该方法可能不存在
+          console.warn('前端存储下载功能未实现')
+          toast({
+            title: "下载提示",
+            description: "正在尝试其他下载方式",
+          })
         } catch (localError) {
           console.warn('前端存储下载异常:', localError)
         }
@@ -291,7 +274,7 @@ export default function DocumentDetailPage() {
       console.error('下载错误:', error)
       toast({
         title: "下载失败",
-        description: `下载文件时发生错误: ${error.message || '未知错误'}`,
+        description: `下载文件时发生错误: ${error instanceof Error ? error.message : '未知错误'}`,
         variant: "destructive",
       })
     }
@@ -407,18 +390,67 @@ export default function DocumentDetailPage() {
         {/* Document Preview */}
         <div className="lg:col-span-2">
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>文档预览</CardTitle>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => {
+                  if (documentData.files && documentData.files.length > 0) {
+                    const file = documentData.files[0];
+                    if (file.filename) {
+                      // 在新窗口中打开预览
+                      const previewUrl = `http://localhost:3001/api/files/preview/${encodeURIComponent(file.filename)}`;
+                      window.open(previewUrl, '_blank');
+                    }
+                  }
+                }}
+              >
+                <Eye className="h-4 w-4 mr-2" />
+                全屏预览
+              </Button>
             </CardHeader>
             <CardContent>
-              <div className="bg-gray-100 rounded-lg p-8 text-center min-h-[500px] flex items-center justify-center">
-                <div className="text-gray-500">
-                  <FileText className="h-16 w-16 mx-auto mb-4" />
-                  <p className="text-lg font-medium">{documentData.type} 文档预览</p>
-                  <p className="text-sm mt-2">点击下载按钮查看完整文档</p>
-                  <p className="text-xs mt-1 text-gray-400">文件名: {documentData.name}</p>
+              {documentData.files && documentData.files.length > 0 && documentData.files[0].filename ? (
+                <div className="rounded-lg overflow-hidden border border-gray-200 min-h-[500px]">
+                  {(() => {
+                    // 检查文件类型是否支持预览
+                    const file = documentData.files[0];
+                    const fileType = getFileType(file.originalName || file.filename);
+                    const supportedPreviewTypes = ['PDF', 'Image', 'Text'];
+                    
+                    if (supportedPreviewTypes.includes(fileType)) {
+                      return (
+                        <iframe 
+                          src={`http://localhost:3001/api/files/preview/${encodeURIComponent(file.filename)}`}
+                          className="w-full h-[500px] border-0"
+                          title={documentData.name}
+                        />
+                      );
+                    } else {
+                      return (
+                        <div className="bg-gray-100 rounded-lg p-8 text-center min-h-[500px] flex items-center justify-center">
+                          <div className="text-gray-500">
+                            <FileText className="h-16 w-16 mx-auto mb-4" />
+                            <p className="text-lg font-medium">{fileType} 文件不支持在线预览</p>
+                            <p className="text-sm mt-2">请点击下载按钮查看完整文档</p>
+                            <p className="text-xs mt-1 text-gray-400">文件名: {file.originalName || file.filename}</p>
+                          </div>
+                        </div>
+                      );
+                    }
+                  })()}
                 </div>
-              </div>
+              ) : (
+                <div className="bg-gray-100 rounded-lg p-8 text-center min-h-[500px] flex items-center justify-center">
+                  <div className="text-gray-500">
+                    <FileText className="h-16 w-16 mx-auto mb-4" />
+                    <p className="text-lg font-medium">{documentData.type} 文档预览</p>
+                    <p className="text-sm mt-2">无法预览此文档，请点击下载按钮查看完整文档</p>
+                    <p className="text-xs mt-1 text-gray-400">文件名: {documentData.name}</p>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 

@@ -4,18 +4,31 @@ const path = require('path');
 const bodyParser = require('body-parser');
 const storageConfig = require('./config/storage');
 const filesRouter = require('./routes/files');
+const foldersRouter = require('./routes/folders');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 // 中间件配置
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:4173', 'http://localhost:4174', 'http://localhost:4175', 'http://localhost:4176', 'http://localhost:5173'],
+  origin: ['http://localhost:3000', 'http://localhost:4173', 'http://localhost:4174', 'http://localhost:4175', 'http://localhost:4176', 'http://localhost:5173', 'http://localhost:5174'],
   credentials: true
 }));
 
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
+
+// 解决URL中包含特殊字符的问题
+app.use((req, res, next) => {
+  const originalUrl = req.url;
+  // 如果URL包含预览路径，特殊处理
+  if (originalUrl.includes('/api/files/preview/')) {
+    const prefix = '/api/files/preview/';
+    const filename = originalUrl.substring(originalUrl.indexOf(prefix) + prefix.length);
+    req.originalFilename = decodeURIComponent(filename);
+  }
+  next();
+});
 
 // 日志中间件
 app.use((req, res, next) => {
@@ -25,6 +38,7 @@ app.use((req, res, next) => {
 
 // API路由
 app.use('/api/files', filesRouter);
+app.use('/api/folders', foldersRouter);
 
 // 健康检查接口
 app.get('/health', (req, res) => {

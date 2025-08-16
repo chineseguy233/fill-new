@@ -76,7 +76,17 @@ const fileFilter = (req, file, cb) => {
     'image/png',
     'image/gif',
     'image/webp',
-    'image/svg+xml'
+    'image/svg+xml',
+    'image/bmp',
+    // 视频类型
+    'video/mp4',
+    'video/avi',
+    'video/quicktime',
+    'video/x-msvideo',
+    'video/x-ms-wmv',
+    'video/webm',
+    'video/x-flv',
+    'video/x-matroska'
   ];
 
   if (allowedTypes.includes(file.mimetype)) {
@@ -91,20 +101,13 @@ const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB限制
-    files: 10 // 最多10个文件
+    files: 10 // 最多10个文件，不限制文件大小
   }
 });
 
 // 错误处理中间件
 const handleUploadError = (error, req, res, next) => {
   if (error instanceof multer.MulterError) {
-    if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({
-        success: false,
-        message: '文件大小超过限制（最大50MB）'
-      });
-    }
     if (error.code === 'LIMIT_FILE_COUNT') {
       return res.status(400).json({
         success: false,

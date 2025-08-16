@@ -31,8 +31,8 @@ export default function Sidebar() {
 
   const secondaryNavigation = [
     { name: '设置', href: '/settings', icon: Settings },
-    { name: '云存储配置', href: '/cloud-storage-config', icon: Cloud },
     ...(user?.permissions?.canManageUsers ? [
+      { name: '云存储配置', href: '/cloud-storage-config', icon: Cloud },
       { name: '用户管理', href: '/user-management', icon: Shield }
     ] : [])
   ]

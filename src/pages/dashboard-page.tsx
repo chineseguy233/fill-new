@@ -251,19 +251,40 @@ export default function DashboardPage() {
       setRecentDocuments(recentDocs)
 
       // 获取收藏文档
-      const starred = storedDocs
-        .filter((doc: any) => doc.starred)
-        .slice(0, 4)
-        .map((doc: any) => ({
-          id: doc.id,
-          name: doc.title || doc.files?.[0]?.name || '未命名文档',
-          type: doc.files?.[0] ? getFileType(doc.files[0].name) : 'File',
-          size: doc.files?.[0] ? formatFileSize(doc.files[0].size) : '0 Bytes',
-          modified: getRelativeTime(doc.createdAt),
-          views: doc.views || 0
-        }))
-
-      setStarredDocuments(starred)
+      const favoriteFiles = JSON.parse(localStorage.getItem('favoriteFiles') || '[]')
+      const favoriteDetails = JSON.parse(localStorage.getItem('favoriteDetails') || '{}')
+      
+      // 从后端获取文件列表来匹配收藏的文件
+      fetch('http://localhost:3001/api/files/list')
+        .then(response => response.json())
+        .then(data => {
+          const files = data.data?.files || []
+          const favoriteDocuments = favoriteFiles
+            .map((filename: string) => {
+              const file = files.find((f: any) => f.name === filename)
+              const details = favoriteDetails[filename]
+              if (file && details) {
+                return {
+                  id: filename,
+                  name: details.originalName || file.originalName || file.name,
+                  type: getFileType(details.originalName || file.originalName || file.name),
+                  size: formatFileSize(file.size),
+                  modified: getRelativeTime(details.addedAt),
+                  views: 0,
+                  filename: filename
+                }
+              }
+              return null
+            })
+            .filter(Boolean)
+            .slice(0, 4)
+          
+          setStarredDocuments(favoriteDocuments)
+        })
+        .catch(error => {
+          console.error('获取收藏文档失败:', error)
+          setStarredDocuments([])
+        })
 
     } catch (error) {
       console.error('加载仪表盘数据失败:', error)
@@ -363,26 +384,34 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {recentDocuments.map((doc) => (
-                <div key={doc.id} className="flex items-center justify-between p-3 rounded-lg border hover:bg-gray-50 transition-colors">
-                  <div className="flex items-center space-x-3">
-                    <FileText className="h-8 w-8 text-blue-600" />
-                    <div>
-                      <p className="font-medium text-gray-900">{doc.name}</p>
-                      <div className="flex items-center space-x-2 text-sm text-gray-500">
-                        <Badge variant="secondary">{doc.type}</Badge>
-                        <span>{doc.size}</span>
-                        <span>•</span>
-                        <span>{doc.modified}</span>
+              {recentDocuments.length > 0 ? (
+                recentDocuments.map((doc) => (
+                  <div key={doc.id} className="flex items-center justify-between p-3 rounded-lg border hover:bg-gray-50 transition-colors">
+                    <div className="flex items-center space-x-3">
+                      <FileText className="h-8 w-8 text-blue-600" />
+                      <div>
+                        <p className="font-medium text-gray-900">{doc.name}</p>
+                        <div className="flex items-center space-x-2 text-sm text-gray-500">
+                          <Badge variant="secondary">{doc.type}</Badge>
+                          <span>{doc.size}</span>
+                          <span>•</span>
+                          <span>{doc.modified}</span>
+                        </div>
                       </div>
                     </div>
+                    <div className="flex items-center space-x-2 text-sm text-gray-500">
+                      <Eye className="h-4 w-4" />
+                      <span>{doc.views}</span>
+                    </div>
                   </div>
-                  <div className="flex items-center space-x-2 text-sm text-gray-500">
-                    <Eye className="h-4 w-4" />
-                    <span>{doc.views}</span>
-                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <FileText className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                  <p>暂无最近文档</p>
+                  <p className="text-sm">上传文档后将在此显示</p>
                 </div>
-              ))}
+              )}
             </div>
           </CardContent>
         </Card>
@@ -401,7 +430,16 @@ export default function DashboardPage() {
             <div className="space-y-4">
               {starredDocuments.length > 0 ? (
                 starredDocuments.map((doc) => (
-                  <div key={doc.id} className="flex items-center justify-between p-3 rounded-lg border hover:bg-gray-50 transition-colors">
+                  <div 
+                    key={doc.id} 
+                    className="flex items-center justify-between p-3 rounded-lg border hover:bg-gray-50 transition-colors cursor-pointer"
+                    onClick={() => {
+                      // 记录查看行为
+                      recordUserActivity('view', { documentId: doc.id, documentName: doc.name })
+                      // 跳转到文档预览页面
+                      window.location.href = `/document-preview?file=${encodeURIComponent(doc.filename)}&displayName=${encodeURIComponent(doc.name)}`
+                    }}
+                  >
                     <div className="flex items-center space-x-3">
                       <FileText className="h-8 w-8 text-blue-600" />
                       <div>

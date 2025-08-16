@@ -151,6 +151,36 @@ class BackendStorageService {
     }
   }
 
+  // 获取文件预览URL
+  getPreviewUrl(filename: string): string {
+    return `${this.baseUrl}/preview/${encodeURIComponent(filename)}`;
+  }
+
+  // 预览文件
+  async previewFile(filename: string): Promise<{ success: boolean; url?: string; message?: string }> {
+    try {
+      // 检查文件是否存在
+      const existsResult = await this.fileExists(filename);
+      if (!existsResult.success || !existsResult.data?.exists) {
+        return {
+          success: false,
+          message: '文件不存在'
+        };
+      }
+
+      // 返回预览URL
+      return {
+        success: true,
+        url: this.getPreviewUrl(filename)
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: '预览文件失败'
+      };
+    }
+  }
+
   // 删除文件
   async deleteFile(filename: string): Promise<{ success: boolean; message: string }> {
     try {

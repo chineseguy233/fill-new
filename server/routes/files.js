@@ -6,6 +6,54 @@ const { upload, handleUploadError, processUploadedFiles } = require('../middlewa
 
 const router = express.Router();
 
+// 文件查看次数存储（实际项目中应使用数据库）
+const viewCounts = new Map();
+
+// 记录文件查看次数
+router.post('/view/:filename', (req, res) => {
+  try {
+    const filename = decodeURIComponent(req.params.filename);
+    const currentCount = viewCounts.get(filename) || 0;
+    viewCounts.set(filename, currentCount + 1);
+    
+    res.json({
+      success: true,
+      data: {
+        filename,
+        viewCount: currentCount + 1
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: '更新查看次数失败',
+      error: error.message
+    });
+  }
+});
+
+// 获取文件查看次数
+router.get('/view/:filename', (req, res) => {
+  try {
+    const filename = decodeURIComponent(req.params.filename);
+    const viewCount = viewCounts.get(filename) || 0;
+    
+    res.json({
+      success: true,
+      data: {
+        filename,
+        viewCount
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: '获取查看次数失败',
+      error: error.message
+    });
+  }
+});
+
 // 文件上传接口
 router.post('/upload', upload, processUploadedFiles, async (req, res) => {
   try {
@@ -178,6 +226,107 @@ router.get('/download/:filename', async (req, res) => {
     res.status(500).json({
       success: false,
       message: '文件下载失败',
+      error: error.message
+    });
+  }
+});
+
+// 预览文件
+router.get('/preview/:filename', async (req, res) => {
+  try {
+    // 从请求中获取文件名
+    let filename = req.params.filename;
+    
+    // 如果有originalFilename（通过中间件设置），则使用它
+    if (req.originalFilename) {
+      filename = req.originalFilename;
+    }
+    
+    console.log('预览文件:', filename);
+    const filePath = storageConfig.getFilePath(filename);
+    console.log('文件路径:', filePath);
+    
+    // 检查文件是否存在
+    const exists = await storageConfig.fileExists(filename);
+    if (!exists) {
+      console.error('文件不存在:', filename);
+      return res.status(404).json({
+        success: false,
+        message: '文件不存在'
+      });
+    }
+
+    // 增加查看次数
+    const currentCount = viewCounts.get(filename) || 0;
+    viewCounts.set(filename, currentCount + 1);
+
+    // 获取文件扩展名
+    const ext = path.extname(filename).toLowerCase();
+    
+    // 根据文件类型设置适当的Content-Type
+    let contentType = 'application/octet-stream';
+    
+    switch (ext) {
+      case '.pdf':
+        contentType = 'application/pdf';
+        break;
+      case '.jpg':
+      case '.jpeg':
+        contentType = 'image/jpeg';
+        break;
+      case '.png':
+        contentType = 'image/png';
+        break;
+      case '.gif':
+        contentType = 'image/gif';
+        break;
+      case '.txt':
+        contentType = 'text/plain';
+        break;
+      case '.md':
+        contentType = 'text/markdown';
+        break;
+      case '.html':
+        contentType = 'text/html';
+        break;
+      case '.doc':
+      case '.docx':
+        contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        break;
+      case '.xls':
+      case '.xlsx':
+        contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        break;
+      case '.ppt':
+      case '.pptx':
+        contentType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+        break;
+    }
+
+    console.log('文件类型:', contentType);
+
+    // 设置响应头，使浏览器内联显示文件而不是下载
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+
+    // 发送文件
+    res.sendFile(filePath, (err) => {
+      if (err) {
+        console.error('文件预览失败:', err);
+        if (!res.headersSent) {
+          res.status(500).json({
+            success: false,
+            message: '文件预览失败'
+          });
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('文件预览失败:', error);
+    res.status(500).json({
+      success: false,
+      message: '文件预览失败',
       error: error.message
     });
   }

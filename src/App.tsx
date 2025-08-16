@@ -5,6 +5,7 @@ import RegisterPage from './pages/register'
 import DashboardPage from './pages/dashboard-page'
 import DocumentsPage from './pages/documents-page'
 import DocumentDetailPage from './pages/document-detail-page'
+import DocumentPreviewPage from './pages/document-preview-page'
 import FoldersPage from './pages/folders-page'
 import FolderDetailPage from './pages/folder-detail-page'
 import SearchPage from './pages/search-page'
@@ -29,6 +30,8 @@ function App() {
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="documents" element={<DocumentsPage />} />
+          <Route path="document-preview" element={<DocumentPreviewPage />} />
+          <Route path="documents/preview/:id/:filename" element={<DocumentPreviewPage />} />
           <Route path="documents/:id" element={<DocumentDetailPage />} />
           <Route path="folders" element={<FoldersPage />} />
           <Route path="folders/:folderId" element={<FolderDetailPage />} />

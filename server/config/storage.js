@@ -80,8 +80,19 @@ class StorageConfig {
         
         if (stats.isFile()) {
           totalSize += stats.size;
+          
+          // 从系统文件名中提取原始文件名
+          // 格式: 时间戳_UUID_原始文件名
+          let originalName = file;
+          const parts = file.split('_');
+          if (parts.length >= 3) {
+            // 移除前两部分（时间戳和UUID），保留原始文件名
+            originalName = parts.slice(2).join('_');
+          }
+          
           fileStats.push({
-            name: file,
+            name: file, // 系统文件名，用于后端操作
+            originalName: originalName, // 原始文件名，用于前端显示
             size: stats.size,
             created: stats.birthtime,
             modified: stats.mtime
