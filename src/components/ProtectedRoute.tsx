@@ -8,16 +8,16 @@ interface ProtectedRouteProps {
 }
 
 export default function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { isLoggedIn, loading } = useAuth()
+  const { user, isLoading } = useAuth()
   const navigate = useNavigate()
 
   useEffect(() => {
-    if (!loading && !isLoggedIn) {
+    if (!isLoading && !user) {
       navigate('/login')
     }
-  }, [isLoggedIn, loading, navigate])
+  }, [user, isLoading, navigate])
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -28,7 +28,7 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
     )
   }
 
-  if (!isLoggedIn) {
+  if (!user) {
     return null
   }
 

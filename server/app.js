@@ -5,15 +5,19 @@ const bodyParser = require('body-parser');
 const storageConfig = require('./config/storage');
 const filesRouter = require('./routes/files');
 const foldersRouter = require('./routes/folders');
+const userLogsRouter = require('./routes/userLogs');
+const usersRouter = require('./routes/users');
 
 const app = express();
+// const PORT = process.env.PORT || 3001;
 const PORT = process.env.PORT || 3001;
 
 // 中间件配置
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:4173', 'http://localhost:4174', 'http://localhost:4175', 'http://localhost:4176', 'http://localhost:5173', 'http://localhost:5174'],
+  origin: true,
   credentials: true
 }));
+app.options('*', cors());
 
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
@@ -39,6 +43,8 @@ app.use((req, res, next) => {
 // API路由
 app.use('/api/files', filesRouter);
 app.use('/api/folders', foldersRouter);
+app.use('/api/user-logs', userLogsRouter);
+app.use('/api/users', usersRouter);
 
 // 健康检查接口
 app.get('/health', (req, res) => {
@@ -99,7 +105,7 @@ async function startServer() {
       console.warn(`⚠️  存储目录创建失败: ${result.error}`);
     }
 
-    app.listen(PORT, () => {
+    app.listen(3001,'0.0.0.0', () => {
       console.log('🚀 Document Management Server 启动成功!');
       console.log(`📡 服务器地址: http://localhost:${PORT}`);
       console.log(`📁 存储路径: ${storageConfig.getStoragePath()}`);

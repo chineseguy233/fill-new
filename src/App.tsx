@@ -8,6 +8,8 @@ import DocumentDetailPage from './pages/document-detail-page'
 import DocumentPreviewPage from './pages/document-preview-page'
 import FoldersPage from './pages/folders-page'
 import FolderDetailPage from './pages/folder-detail-page'
+import AdminActivityLogsPage from './pages/admin-activity-logs-page'
+import DataManagementPage from './pages/data-management-page'
 import SearchPage from './pages/search-page'
 import EnhancedSettingsPage from './pages/enhanced-settings-page'
 import UserManagementPage from './pages/user-management-page'
@@ -35,6 +37,8 @@ function App() {
           <Route path="documents/:id" element={<DocumentDetailPage />} />
           <Route path="folders" element={<FoldersPage />} />
           <Route path="folders/:folderId" element={<FolderDetailPage />} />
+          <Route path="admin-activity-logs" element={<AdminActivityLogsPage />} />
+          <Route path="data-management" element={<DataManagementPage />} />
           <Route path="search" element={<SearchPage />} />
           <Route path="settings" element={<EnhancedSettingsPage />} />
           <Route path="cloud-storage-config" element={<CloudStorageConfigPage />} />

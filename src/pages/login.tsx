@@ -26,7 +26,7 @@ export default function LoginPage() {
     setIsLoading(true)
 
     try {
-      const result = await login({ identifier: email, password })
+      const result = await login(email, password)
       
       if (result.success) {
         toast({

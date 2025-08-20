@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog'
 import { 
@@ -15,9 +16,13 @@ import {
   Edit,
   Trash2,
   FileText,
-  Save
+  Save,
+  Lock,
+  Globe,
+  Settings
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
+import { API_FOLDERS } from '@/lib/apiBase'
 
 interface FolderItem {
   id: string
@@ -26,6 +31,12 @@ interface FolderItem {
   documentCount: number
   createdAt: string
   updatedAt: string
+  visibility?: 'public' | 'private'
+  permissions?: {
+    owner: string
+    viewers: string[]
+    editors: string[]
+  }
 }
 
 export default function FoldersPage() {
@@ -37,6 +48,9 @@ export default function FoldersPage() {
   const [editingFolder, setEditingFolder] = useState<FolderItem | null>(null)
   const [newFolderName, setNewFolderName] = useState('')
   const [newFolderDescription, setNewFolderDescription] = useState('')
+  const [newFolderVisibility, setNewFolderVisibility] = useState<'public' | 'private'>('public')
+  const [isPermissionDialogOpen, setIsPermissionDialogOpen] = useState(false)
+  const [permissionFolder, setPermissionFolder] = useState<FolderItem | null>(null)
   const { toast } = useToast()
   const navigate = useNavigate()
 
@@ -50,30 +64,63 @@ export default function FoldersPage() {
     })
   }
 
+  // 监听权限更新事件
+  useEffect(() => {
+    const handlePermissionUpdate = (event: CustomEvent) => {
+      const { folderId, visibility } = event.detail
+      setFolders(prev => prev.map(f => 
+        f.id === folderId ? { ...f, visibility } : f
+      ))
+      console.log(`文件夹 ${folderId} 权限已更新为: ${visibility}`)
+    }
+
+    window.addEventListener('folderPermissionUpdated', handlePermissionUpdate as EventListener)
+    
+    return () => {
+      window.removeEventListener('folderPermissionUpdated', handlePermissionUpdate as EventListener)
+    }
+  }, [])
+
   // 从localStorage和后端存储加载文件夹数据
   useEffect(() => {
     const loadFolders = async () => {
       try {
         // 从localStorage获取所有文档
         const storedDocs = JSON.parse(localStorage.getItem('documents') || '[]')
-        
-        // 尝试从后端获取文件列表
-        let backendFileCount = 0
+
+        // 从后端API获取文件列表（用于统计文件数量）
+        let backendFiles: any[] = []
         try {
-          const backendModule = await import('@/lib/backendStorage')
-          const backendResult = await backendModule.backendStorageService.getFileList()
-          
-          if (backendResult.success && backendResult.data?.files) {
-            backendFileCount = backendResult.data.files.length
-            console.log('后端文件数量:', backendFileCount)
+          const response = await fetch(`${API_FOLDERS.replace('/folders', '/files')}/list`)
+          if (response.ok) {
+            const result = await response.json()
+            if (result.success && result.data?.files) {
+              backendFiles = result.data.files
+              console.log('后端文件数量:', backendFiles.length)
+            }
           }
         } catch (backendError) {
           console.warn('后端文件统计失败:', backendError)
         }
-        
+
+        // 新增：从后端获取真实文件夹列表，避免仅显示 localStorage 的文件夹
+        let apiFolders: any[] = []
+        try {
+          const resp = await fetch(`${API_FOLDERS}`)
+          if (resp.ok) {
+            const json = await resp.json()
+            if (json.success && Array.isArray(json.data)) {
+              apiFolders = json.data
+            }
+          }
+        } catch (apiErr) {
+          console.warn('获取后端文件夹失败:', apiErr)
+        }
+
         // 统计每个文件夹的文档数量
         const folderStats: { [key: string]: { count: number; lastModified: string } } = {}
-        
+
+        // 统计前端本地文档数据
         storedDocs.forEach((doc: any) => {
           const folderId = doc.folderId || 'root'
           if (!folderStats[folderId]) {
@@ -85,45 +132,85 @@ export default function FoldersPage() {
           }
         })
 
-        // 将后端文件计入根目录
-        if (backendFileCount > 0) {
-          if (!folderStats['root']) {
-            folderStats['root'] = { count: 0, lastModified: new Date().toISOString() }
+        // 统计后端文件数量（需要根据文件夹归属进行分类）
+        if (backendFiles.length > 0) {
+          // 获取每个后端文件的文件夹归属
+          for (const file of backendFiles) {
+            try {
+              const folderResponse = await fetch(`${API_FOLDERS.replace('/folders', '/files')}/folder/${encodeURIComponent(file.name)}`)
+              let folderId = 'root' // 默认归属根目录
+              
+              if (folderResponse.ok) {
+                const folderData = await folderResponse.json()
+                if (folderData.success && folderData.data?.folderId) {
+                  folderId = folderData.data.folderId
+                }
+              }
+              
+              if (!folderStats[folderId]) {
+                folderStats[folderId] = { count: 0, lastModified: file.created || file.modified || new Date().toISOString() }
+              }
+              folderStats[folderId].count++
+              
+              const fileTime = file.created || file.modified || new Date().toISOString()
+              if (fileTime > folderStats[folderId].lastModified) {
+                folderStats[folderId].lastModified = fileTime
+              }
+            } catch (error) {
+              console.warn(`获取文件 ${file.name} 的文件夹归属失败:`, error)
+              // 归属获取失败，默认计入根目录
+              if (!folderStats['root']) {
+                folderStats['root'] = { count: 0, lastModified: new Date().toISOString() }
+              }
+              folderStats['root'].count++
+            }
           }
-          folderStats['root'].count += backendFileCount
+          
+          console.log('文件夹统计完成:', folderStats)
         }
 
-        // 获取已保存的自定义文件夹
+        // 获取已保存的自定义文件夹（本地）
         const customFolders = JSON.parse(localStorage.getItem('folders') || '[]')
-        
-        // 创建默认文件夹列表
+
+        // 默认根目录
         const defaultFolders = [
-          { id: 'root', name: '根目录', description: '默认文档存储位置（包含后端存储文件）' },
-          { id: 'documents', name: '文档', description: '一般文档文件' },
-          { id: 'images', name: '图片', description: '图片和媒体文件' },
-          { id: 'projects', name: '项目文件', description: '项目相关文档' },
-          { id: 'archive', name: '归档', description: '已归档的文件' }
+          { id: 'root', name: '根目录', description: '默认文档存储位置（包含后端存储文件）' }
         ]
 
-        // 合并默认文件夹和自定义文件夹
-        const allFolders = [...defaultFolders, ...customFolders]
-        
-        // 格式化文件夹数据
-        const formattedFolders: FolderItem[] = allFolders.map(folder => ({
+        // 合并：根目录 + 后端文件夹 + 本地文件夹，按 id 去重
+        const mergedMap = new Map<string, any>()
+        ;[...defaultFolders, ...apiFolders, ...customFolders].forEach((f: any) => {
+          if (f && f.id) {
+            if (!mergedMap.has(f.id)) {
+              mergedMap.set(f.id, f)
+            } else {
+              // 后端数据优先于本地，保持已有条目（默认先放后端再放本地即可）
+            }
+          }
+        })
+        const allFolders = Array.from(mergedMap.values())
+
+        // 格式化为页面展示结构
+        const formattedFolders: FolderItem[] = allFolders.map((folder: any) => ({
           id: folder.id,
-          name: folder.name,
+          name: folder.name || '未命名文件夹',
           description: folder.description || '',
           documentCount: folderStats[folder.id]?.count || 0,
-          createdAt: folder.createdAt || new Date().toISOString().split('T')[0],
-          updatedAt: folderStats[folder.id]?.lastModified?.split('T')[0] || new Date().toISOString().split('T')[0]
+          createdAt: (folder.createdAt || new Date().toISOString()).split('T')[0],
+          updatedAt: (folderStats[folder.id]?.lastModified || folder.updatedAt || new Date().toISOString()).split('T')[0],
+          visibility: folder.visibility || 'public',
+          permissions: folder.permissions || {
+            owner: 'anonymous',
+            viewers: [],
+            editors: []
+          }
         }))
 
         setFolders(formattedFolders)
-        
-        if (backendFileCount > 0) {
-          console.log(`文件夹统计已更新，根目录包含 ${backendFileCount} 个后端文件`)
+
+        if (backendFiles.length > 0) {
+          console.log(`文件夹统计已更新，根目录包含 ${backendFiles.length} 个后端文件`)
         }
-        
       } catch (error) {
         console.error('加载文件夹失败:', error)
         // 如果加载失败，至少显示默认文件夹
@@ -151,7 +238,7 @@ export default function FoldersPage() {
   )
 
   // 创建文件夹
-  const handleCreateFolder = () => {
+  const handleCreateFolder = async () => {
     if (!newFolderName.trim()) {
       toast({
         title: "请输入文件夹名称",
@@ -160,36 +247,88 @@ export default function FoldersPage() {
       return
     }
 
-    const newFolder: FolderItem = {
-      id: Date.now().toString(),
-      name: newFolderName.trim(),
-      description: newFolderDescription.trim(),
-      documentCount: 0,
-      createdAt: new Date().toISOString().split('T')[0],
-      updatedAt: new Date().toISOString().split('T')[0]
-    }
-
-    // 更新状态
-    setFolders(prev => [...prev, newFolder])
-    
-    // 保存到localStorage
     try {
-      const existingFolders = JSON.parse(localStorage.getItem('folders') || '[]')
-      existingFolders.push(newFolder)
-      localStorage.setItem('folders', JSON.stringify(existingFolders))
-      console.log('文件夹已保存到localStorage:', newFolder)
-    } catch (error) {
-      console.error('保存文件夹失败:', error)
-    }
-    
-    setNewFolderName('')
-    setNewFolderDescription('')
-    setIsCreateDialogOpen(false)
+      const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}')
+      
+      const newFolder: FolderItem = {
+        id: Date.now().toString(),
+        name: newFolderName.trim(),
+        description: newFolderDescription.trim(),
+        documentCount: 0,
+        createdAt: new Date().toISOString().split('T')[0],
+        updatedAt: new Date().toISOString().split('T')[0],
+        visibility: newFolderVisibility,
+        permissions: {
+          owner: currentUser.id || 'anonymous',
+          viewers: [],
+          editors: []
+        }
+      }
 
-    toast({
-      title: "创建成功",
-      description: `文件夹 "${newFolder.name}" 已创建`,
-    })
+      // 尝试通过API创建文件夹
+      try {
+        const response = await fetch(`${API_FOLDERS}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: newFolder.name,
+            description: newFolder.description,
+            createdBy: currentUser.id || 'anonymous',
+            visibility: newFolder.visibility,
+            permissions: newFolder.permissions
+          })
+        })
+
+        if (response.ok) {
+          const result = await response.json()
+          if (result.success) {
+            // 使用后端返回的数据
+            const backendFolder = {
+              ...result.data,
+              documentCount: 0
+            }
+            setFolders(prev => [...prev, backendFolder])
+            
+            toast({
+              title: "创建成功",
+              description: `文件夹 "${newFolder.name}" 已创建`,
+            })
+          }
+        } else {
+          throw new Error('后端创建失败')
+        }
+      } catch (apiError) {
+        console.warn('API创建失败，使用本地存储:', apiError)
+        
+        // 更新状态
+        setFolders(prev => [...prev, newFolder])
+        
+        // 保存到localStorage
+        const existingFolders = JSON.parse(localStorage.getItem('folders') || '[]')
+        existingFolders.push(newFolder)
+        localStorage.setItem('folders', JSON.stringify(existingFolders))
+        
+        toast({
+          title: "创建成功",
+          description: `文件夹 "${newFolder.name}" 已创建（本地存储）`,
+        })
+      }
+      
+      setNewFolderName('')
+      setNewFolderDescription('')
+      setNewFolderVisibility('public')
+      setIsCreateDialogOpen(false)
+
+    } catch (error) {
+      console.error('创建文件夹失败:', error)
+      toast({
+        title: "创建失败",
+        description: "创建文件夹时发生错误",
+        variant: "destructive",
+      })
+    }
   }
 
   // 编辑文件夹
@@ -232,25 +371,65 @@ export default function FoldersPage() {
   }
 
   // 删除文件夹
-  const handleDeleteFolder = (folder: FolderItem) => {
-    // 更新状态
-    setFolders(prev => prev.filter(f => f.id !== folder.id))
-    
-    // 从localStorage中删除
+  const handleDeleteFolder = async (folder: FolderItem) => {
     try {
-      const existingFolders = JSON.parse(localStorage.getItem('folders') || '[]')
-      const filteredFolders = existingFolders.filter((f: any) => f.id !== folder.id)
-      localStorage.setItem('folders', JSON.stringify(filteredFolders))
-      console.log('文件夹已从localStorage删除:', folder.name)
+      // 如果是根目录，不允许删除
+      if (folder.id === 'root') {
+        toast({
+          title: "无法删除",
+          description: "根目录不能被删除",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // 尝试通过API删除
+      try {
+        const response = await fetch(`${API_FOLDERS}/${folder.id}`, {
+          method: 'DELETE'
+        })
+
+        if (response.ok) {
+          const result = await response.json()
+          if (result.success) {
+            // 后端删除成功
+            setFolders(prev => prev.filter(f => f.id !== folder.id))
+            
+            toast({
+              title: "删除成功",
+              description: `文件夹 "${folder.name}" 已删除`,
+            })
+            return
+          } else {
+            throw new Error(result.message || '后端删除失败')
+          }
+        } else {
+          throw new Error('删除请求失败')
+        }
+      } catch (apiError) {
+        console.warn('API删除失败，尝试本地删除:', apiError)
+        
+        // API删除失败，尝试本地删除
+        setFolders(prev => prev.filter(f => f.id !== folder.id))
+        
+        // 从localStorage中删除
+        const existingFolders = JSON.parse(localStorage.getItem('folders') || '[]')
+        const filteredFolders = existingFolders.filter((f: any) => f.id !== folder.id)
+        localStorage.setItem('folders', JSON.stringify(filteredFolders))
+        
+        toast({
+          title: "删除成功",
+          description: `文件夹 "${folder.name}" 已删除（本地删除）`,
+        })
+      }
     } catch (error) {
       console.error('删除文件夹失败:', error)
+      toast({
+        title: "删除失败",
+        description: "删除文件夹时发生错误",
+        variant: "destructive",
+      })
     }
-    
-    toast({
-      title: "删除成功",
-      description: `文件夹 "${folder.name}" 已删除`,
-      variant: "destructive",
-    })
   }
 
   if (isLoading) {
@@ -319,6 +498,28 @@ export default function FoldersPage() {
                   onChange={(e) => setNewFolderDescription(e.target.value)}
                   rows={3}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="folder-visibility">可见性</Label>
+                <Select value={newFolderVisibility} onValueChange={(value: 'public' | 'private') => setNewFolderVisibility(value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="选择可见性" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="public">
+                      <div className="flex items-center space-x-2">
+                        <Globe className="h-4 w-4" />
+                        <span>所有人可见</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="private">
+                      <div className="flex items-center space-x-2">
+                        <Lock className="h-4 w-4" />
+                        <span>仅自己可见</span>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="flex justify-end space-x-2">
                 <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
@@ -393,7 +594,14 @@ export default function FoldersPage() {
                 <div className="flex items-center space-x-3">
                   <Folder className="h-8 w-8 text-blue-600" />
                   <div>
-                    <CardTitle className="text-lg">{folder.name}</CardTitle>
+                    <div className="flex items-center space-x-2">
+                      <CardTitle className="text-lg">{folder.name}</CardTitle>
+                      {folder.visibility === 'private' ? (
+                        <Lock className="h-4 w-4 text-gray-500" title="私有文件夹" />
+                      ) : (
+                        <Globe className="h-4 w-4 text-green-500" title="公开文件夹" />
+                      )}
+                    </div>
                     <CardDescription className="text-sm">
                       {folder.description}
                     </CardDescription>
@@ -426,6 +634,19 @@ export default function FoldersPage() {
                 >
                   <Edit className="h-3 w-3 mr-1" />
                   编辑
+                </Button>
+
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setPermissionFolder(folder)
+                    setIsPermissionDialogOpen(true)
+                  }}
+                  title="权限设置"
+                >
+                  <Settings className="h-3 w-3" />
                 </Button>
                 
                 <AlertDialog>
@@ -467,6 +688,146 @@ export default function FoldersPage() {
           </Card>
         ))}
       </div>
+
+      {/* 权限管理对话框 */}
+      <Dialog open={isPermissionDialogOpen} onOpenChange={setIsPermissionDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>权限设置 - {permissionFolder?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>可见性设置</Label>
+              <Select 
+                value={permissionFolder?.visibility || 'public'} 
+                onValueChange={async (value: 'public' | 'private') => {
+                  if (permissionFolder) {
+                    try {
+                      const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}')
+                      
+                      // 尝试通过API更新权限
+                      try {
+                        const response = await fetch(`${API_FOLDERS}/${permissionFolder.id}/permissions`, {
+                          method: 'PUT',
+                          headers: {
+                            'Content-Type': 'application/json',
+                          },
+                          body: JSON.stringify({
+                            visibility: value,
+                            userId: currentUser.id || 'anonymous'
+                          })
+                        })
+
+                        if (response.ok) {
+                          const result = await response.json()
+                          if (result.success) {
+                            const updatedFolder = {
+                              ...permissionFolder,
+                              visibility: value
+                            }
+                            setPermissionFolder(updatedFolder)
+                            setFolders(prev => prev.map(f => 
+                              f.id === permissionFolder.id ? updatedFolder : f
+                            ))
+                            
+                            toast({
+                              title: "权限更新成功",
+                              description: `文件夹 "${permissionFolder.name}" 的可见性已更新`,
+                            })
+                            return
+                          }
+                        }
+                        throw new Error('API更新失败')
+                      } catch (apiError) {
+                        console.warn('API权限更新失败，使用本地更新:', apiError)
+                        
+                        // API失败，本地更新
+                        const updatedFolder = {
+                          ...permissionFolder,
+                          visibility: value
+                        }
+                        setPermissionFolder(updatedFolder)
+                        setFolders(prev => prev.map(f => 
+                          f.id === permissionFolder.id ? updatedFolder : f
+                        ))
+                        
+                        // 保存到localStorage - 确保正确更新
+                        const existingFolders = JSON.parse(localStorage.getItem('folders') || '[]')
+                        const updatedFolders = existingFolders.map((f: any) => 
+                          f.id === permissionFolder.id ? { ...f, visibility: value } : f
+                        )
+                        localStorage.setItem('folders', JSON.stringify(updatedFolders))
+                        
+                        // 触发存储事件，通知其他组件更新
+                        window.dispatchEvent(new CustomEvent('folderPermissionUpdated', {
+                          detail: { folderId: permissionFolder.id, visibility: value }
+                        }))
+                        
+                        toast({
+                          title: "权限更新成功",
+                          description: `文件夹 "${permissionFolder.name}" 的可见性已更新（本地保存）`,
+                        })
+                      }
+                    } catch (error) {
+                      console.error('权限更新失败:', error)
+                      toast({
+                        title: "权限更新失败",
+                        description: "更新文件夹权限时发生错误",
+                        variant: "destructive",
+                      })
+                    }
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="public">
+                    <div className="flex items-center space-x-2">
+                      <Globe className="h-4 w-4 text-green-500" />
+                      <span>所有人可见</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="private">
+                    <div className="flex items-center space-x-2">
+                      <Lock className="h-4 w-4 text-gray-500" />
+                      <span>仅自己可见</span>
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="text-sm text-gray-600 p-3 bg-gray-50 rounded-lg">
+              <div className="flex items-start space-x-2">
+                {permissionFolder?.visibility === 'private' ? (
+                  <Lock className="h-4 w-4 mt-0.5 text-gray-500" />
+                ) : (
+                  <Globe className="h-4 w-4 mt-0.5 text-green-500" />
+                )}
+                <div>
+                  <p className="font-medium">
+                    {permissionFolder?.visibility === 'private' ? '私有文件夹' : '公开文件夹'}
+                  </p>
+                  <p className="text-xs mt-1">
+                    {permissionFolder?.visibility === 'private' 
+                      ? '只有您可以查看和管理此文件夹中的内容'
+                      : '所有用户都可以查看此文件夹中的内容'
+                    }
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex justify-end space-x-2">
+              <Button variant="outline" onClick={() => setIsPermissionDialogOpen(false)}>
+                关闭
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* 空状态 */}
       {filteredFolders.length === 0 && searchTerm && (

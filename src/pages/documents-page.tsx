@@ -44,7 +44,6 @@ import {
   Filter,
   SortAsc,
   SortDesc,
-  Plus,
   Folder,
   FileImage,
   FileSpreadsheet,
@@ -55,6 +54,9 @@ import {
 } from 'lucide-react'
 import DocumentUpload from '@/components/DocumentUpload'
 import { useToast } from '@/hooks/use-toast'
+import { FileViewCounter } from '@/components/FileViewCounter'
+import { useUserActivityLogger } from '@/components/UserActivityLogger'
+import { API_FILES, API_FOLDERS } from '@/lib/apiBase'
 
 // 文件类型图标映射
 const getFileIcon = (filename: string, size = 'h-8 w-8') => {
@@ -97,6 +99,9 @@ const getFileIcon = (filename: string, size = 'h-8 w-8') => {
 }
 
 export default function EnhancedDocumentsPage() {
+  // 用户活动日志
+  const logger = useUserActivityLogger()
+  
   // 文件夹状态
   const [folders, setFolders] = useState<any[]>([])
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
@@ -122,19 +127,31 @@ export default function EnhancedDocumentsPage() {
   const { toast } = useToast()
 
   useEffect(() => {
-    fetchDocuments()
-    fetchFolders()
-    loadFavorites()
+    const initializeData = async () => {
+      await fetchFolders()
+      await fetchDocuments()
+      loadFavorites()
+    }
+    initializeData()
   }, [])
 
   // 获取文件夹列表
   const fetchFolders = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/folders')
+      const response = await fetch(`${API_FOLDERS}`)
       if (response.ok) {
         const data = await response.json()
         if (data.success && data.data) {
-          setFolders(data.data)
+          // 确保文件夹数据格式正确
+          const folderList = data.data.map((folder: any) => ({
+            id: folder.id,
+            name: folder.name,
+            path: folder.path || `/${folder.name}`,
+            parentId: folder.parentId,
+            createdAt: folder.createdAt,
+            updatedAt: folder.updatedAt
+          }))
+          setFolders(folderList)
         }
       }
     } catch (error) {
@@ -208,19 +225,69 @@ export default function EnhancedDocumentsPage() {
   const fetchDocuments = async () => {
     try {
       setIsLoading(true)
-      const response = await fetch('http://localhost:3001/api/files/list')
+      const response = await fetch(`${API_FILES}/list`)
       if (response.ok) {
         const data = await response.json()
+        // 预先构建文件夹映射，避免依赖异步的 state
+        let folderMap = new Map<string, any>()
+        try {
+          const fr = await fetch(`${API_FOLDERS}`)
+          if (fr.ok) {
+            const fd = await fr.json()
+            const list = (fd?.data || []).map((f: any) => ({
+              id: f.id,
+              name: f.name,
+              path: f.path || `/${f.name}`
+            }))
+            for (const f of list) folderMap.set(f.id, f)
+          }
+        } catch (e) {
+          console.error('加载文件夹映射失败:', e)
+        }
         // 增强文档数据，添加作者、文件夹等信息
-        const enhancedFiles = (data.data?.files || []).map((file: any) => ({
-          ...file,
-          author: '系统管理员', // 默认作者
-          folder: folders.find(f => f.id === 'root'), // 默认文件夹
-          tags: [], // 标签
-          description: '', // 描述
-          uploadTime: file.created || file.modified || new Date().toISOString()
+        const enhancedFiles = await Promise.all((data.data?.files || []).map(async (file: any) => {
+          // 获取文件的文件夹归属信息
+          let fileFolderId = 'root'
+          let fileFolder = { id: 'root', name: '根目录' }
+          
+          try {
+            const folderResponse = await fetch(`${API_FILES}/folder/${encodeURIComponent(file.name)}`)
+            if (folderResponse.ok) {
+              const folderData = await folderResponse.json()
+              if (folderData.success) {
+                fileFolderId = folderData.data.folderId
+                // 找到对应的文件夹对象
+                fileFolder = folderMap.get(fileFolderId) || { id: 'root', name: '根目录' }
+              }
+            }
+          } catch (error) {
+            console.error('获取文件文件夹信息失败:', error)
+          }
+          
+          // 提取原始文件名
+          let originalName = file.name
+          const parts = file.name.split('_')
+          if (parts.length >= 3 && /^\d+$/.test(parts[0]) && /^[0-9a-fA-F-]{6,}$/.test(parts[1])) {
+            // 去掉时间戳和UUID前缀 (格式: timestamp_uuid_originalname)
+            originalName = parts.slice(2).join('_')
+          } else if (parts.length >= 2 && /^[0-9a-fA-F-]{6,}$/.test(parts[0])) {
+            // 去掉单段UUID前缀 (格式: uuid_originalname)
+            originalName = parts.slice(1).join('_')
+          }
+          
+          return {
+            ...file,
+            originalName: originalName,
+            author: file.author || '系统管理员',
+            folder: fileFolder,
+            folderId: fileFolderId,
+            tags: [], // 标签
+            description: '', // 描述
+            uploadTime: file.created || file.modified || new Date().toISOString()
+          }
         }))
         setDocuments(enhancedFiles)
+        console.log('文档列表已更新，包含文件夹归属信息')
       }
     } catch (error) {
       console.error('获取文档列表失败:', error)
@@ -237,6 +304,11 @@ export default function EnhancedDocumentsPage() {
   const handleUploadSuccess = () => {
     setIsUploadDialogOpen(false)
     fetchDocuments()
+    logger.logActivity({
+      action: 'file_upload',
+      resource: 'multiple_files',
+      details: { uploadTime: new Date().toISOString() }
+    })
     toast({
       title: "上传成功",
       description: "文件已成功上传到系统",
@@ -245,10 +317,16 @@ export default function EnhancedDocumentsPage() {
 
   const handleDeleteDocument = async (filename: string) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/files/delete/${filename}`, {
-        method: 'DELETE'
+      const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}')
+      const response = await fetch(`${API_FILES}/delete/${filename}`, {
+        method: 'DELETE',
+        headers: {
+          'X-User-Id': currentUser.id ? String(currentUser.id) : '',
+          'X-User-Role': currentUser.role ? String(currentUser.role) : 'user'
+        }
       })
       if (response.ok) {
+        logger.logFileDelete(filename)
         fetchDocuments()
         toast({
           title: "删除成功",
@@ -270,8 +348,13 @@ export default function EnhancedDocumentsPage() {
   const handleBatchDelete = async () => {
     try {
       for (const filename of selectedFiles) {
-        await fetch(`http://localhost:3001/api/files/delete/${filename}`, {
-          method: 'DELETE'
+        const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}')
+        await fetch(`${API_FILES}/delete/${filename}`, {
+          method: 'DELETE',
+          headers: {
+            'X-User-Id': currentUser.id ? String(currentUser.id) : '',
+            'X-User-Role': currentUser.role ? String(currentUser.role) : 'user'
+          }
         })
       }
       setSelectedFiles([])
@@ -302,7 +385,7 @@ export default function EnhancedDocumentsPage() {
     }
 
     try {
-      const response = await fetch('http://localhost:3001/api/folders', {
+      const response = await fetch(`${API_FOLDERS}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -324,7 +407,9 @@ export default function EnhancedDocumentsPage() {
         setNewFolderParentId('root')
         setIsCreateFolderDialogOpen(false)
         // 重新获取文件夹列表
-        fetchFolders()
+        await fetchFolders()
+        // 重新获取文档列表以更新文件夹显示
+        await fetchDocuments()
       } else {
         throw new Error(data.message || '创建文件夹失败')
       }
@@ -338,7 +423,7 @@ export default function EnhancedDocumentsPage() {
     }
   }
 
-  const handleMoveFiles = () => {
+  const handleMoveFiles = async () => {
     if (!targetFolder) {
       toast({
         title: "请选择目标文件夹",
@@ -347,24 +432,90 @@ export default function EnhancedDocumentsPage() {
       return
     }
     
-    // 模拟移动文件（实际应该调用后端API）
-    const targetFolderObj = folders.find(f => f.id === targetFolder)
-    toast({
-      title: "移动成功",
-      description: `已将 ${filesToMove.length} 个文件移动到 "${targetFolderObj?.name}"`,
-    })
-    
-    setFilesToMove([])
-    setSelectedFiles([])
-    setIsMoveDialogOpen(false)
-    setTargetFolder('')
+    try {
+      // 调用后端API移动文件
+      for (const filename of filesToMove) {
+        const response = await fetch(`${API_FILES}/move/${encodeURIComponent(filename)}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            folderId: targetFolder
+          })
+        })
+        
+        if (!response.ok) {
+          throw new Error(`移动文件 ${filename} 失败`)
+        }
+      }
+      
+      const targetFolderObj = folders.find(f => f.id === targetFolder)
+      toast({
+        title: "移动成功",
+        description: `已将 ${filesToMove.length} 个文件移动到 "${targetFolderObj?.name}"`,
+      })
+      
+      // 重新获取文档列表以反映更改
+      fetchDocuments()
+      
+      setFilesToMove([])
+      setSelectedFiles([])
+      setIsMoveDialogOpen(false)
+      setTargetFolder('')
+    } catch (error) {
+      console.error('移动文件失败:', error)
+      toast({
+        title: "移动失败",
+        description: error instanceof Error ? error.message : "移动文件时发生错误",
+        variant: "destructive",
+      })
+    }
   }
 
-  const handleDownloadDocument = (filename: string) => {
-    window.open(`http://localhost:3001/api/files/download/${filename}`, '_blank')
+  // 处理单个文件移动
+  const handleSingleFileMove = async (filename: string, folderId: string, folderName: string) => {
+    try {
+      const response = await fetch(`${API_FILES}/move/${encodeURIComponent(filename)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          folderId: folderId
+        })
+      })
+      
+      if (!response.ok) {
+        throw new Error(`移动文件失败`)
+      }
+      
+      toast({
+        title: "移动成功",
+        description: `文件已移动到 "${folderName}"`,
+      })
+      
+      // 重新获取文档列表以反映更改
+      fetchDocuments()
+    } catch (error) {
+      console.error('移动文件失败:', error)
+      toast({
+        title: "移动失败",
+        description: error instanceof Error ? error.message : "移动文件时发生错误",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleDownloadDocument = (filename: string, originalName?: string) => {
+    logger.logFileDownload(filename)
+    const url = `${API_FILES}/download/${encodeURIComponent(filename)}${originalName ? `?originalName=${encodeURIComponent(originalName)}` : ''}`
+    window.open(url, '_blank')
   }
 
   const handleViewDocument = (filename: string, originalName?: string) => {
+    // 记录用户活动
+    logger.logFileView(filename)
     // 增加查看次数
     incrementViewCount(filename)
     // 使用原始文件名作为显示名称，系统文件名作为实际文件标识
@@ -374,7 +525,7 @@ export default function EnhancedDocumentsPage() {
 
   const incrementViewCount = async (filename: string) => {
     try {
-      await fetch(`http://localhost:3001/api/files/view/${encodeURIComponent(filename)}`, {
+      await fetch(`${API_FILES}/view/${encodeURIComponent(filename)}`, {
         method: 'POST'
       })
     } catch (error) {
@@ -463,55 +614,6 @@ export default function EnhancedDocumentsPage() {
                 <DialogTitle>上传文档</DialogTitle>
               </DialogHeader>
               <DocumentUpload onUploadComplete={handleUploadSuccess} />
-            </DialogContent>
-          </Dialog>
-          
-          <Dialog open={isCreateFolderDialogOpen} onOpenChange={setIsCreateFolderDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline">
-                <Plus className="mr-2 h-4 w-4" />
-                新建文件夹
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>新建文件夹</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 py-2">
-                <div className="space-y-2">
-                  <Label htmlFor="folderName">文件夹名称</Label>
-                  <Input 
-                    id="folderName" 
-                    placeholder="输入文件夹名称" 
-                    value={newFolderName}
-                    onChange={(e) => setNewFolderName(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="parentFolder">父文件夹</Label>
-                  <Select value={newFolderParentId} onValueChange={setNewFolderParentId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="选择父文件夹" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="root">根目录</SelectItem>
-                      {folders.map(folder => (
-                        <SelectItem key={folder.id} value={folder.id}>
-                          {folder.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex justify-end space-x-2 pt-4">
-                  <Button variant="outline" onClick={() => setIsCreateFolderDialogOpen(false)}>
-                    取消
-                  </Button>
-                  <Button onClick={handleCreateFolder}>
-                    创建
-                  </Button>
-                </div>
-              </div>
             </DialogContent>
           </Dialog>
         </div>
@@ -687,7 +789,7 @@ export default function EnhancedDocumentsPage() {
                               <Star className="mr-2 h-4 w-4" />
                               {favoriteFiles.includes(doc.name) ? '取消收藏' : '收藏'}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDownloadDocument(doc.name)}>
+                            <DropdownMenuItem onClick={() => handleDownloadDocument(doc.name, doc.originalName)}>
                               <Download className="mr-2 h-4 w-4" />
                               下载
                             </DropdownMenuItem>
@@ -698,7 +800,10 @@ export default function EnhancedDocumentsPage() {
                               </DropdownMenuSubTrigger>
                               <DropdownMenuSubContent>
                                 {folders.map(folder => (
-                                  <DropdownMenuItem key={folder.id}>
+                                  <DropdownMenuItem 
+                                    key={folder.id}
+                                    onClick={() => handleSingleFileMove(doc.name, folder.id, folder.name)}
+                                  >
                                     <Folder className="mr-2 h-4 w-4" />
                                     {folder.name}
                                   </DropdownMenuItem>
@@ -784,10 +889,7 @@ export default function EnhancedDocumentsPage() {
                               <Folder className="mr-1 h-3 w-3" />
                               {doc.folder?.name || '根目录'}
                             </span>
-                            <span className="flex items-center">
-                              <Eye className="mr-1 h-3 w-3" />
-                              {doc.viewCount || 0} 次查看
-                            </span>
+                            <FileViewCounter filename={doc.name} className="flex items-center" />
                             <span>{formatFileSize(doc.size)}</span>
                             <span>{formatDate(doc.uploadTime)}</span>
                           </div>
@@ -823,7 +925,7 @@ export default function EnhancedDocumentsPage() {
                               <Star className="mr-2 h-4 w-4" />
                               {favoriteFiles.includes(doc.name) ? '取消收藏' : '收藏'}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDownloadDocument(doc.name)}>
+                            <DropdownMenuItem onClick={() => handleDownloadDocument(doc.name, doc.originalName)}>
                               <Download className="mr-2 h-4 w-4" />
                               下载
                             </DropdownMenuItem>
@@ -834,7 +936,10 @@ export default function EnhancedDocumentsPage() {
                               </DropdownMenuSubTrigger>
                               <DropdownMenuSubContent>
                                 {folders.map(folder => (
-                                  <DropdownMenuItem key={folder.id}>
+                                  <DropdownMenuItem 
+                                    key={folder.id}
+                                    onClick={() => handleSingleFileMove(doc.name, folder.id, folder.name)}
+                                  >
                                     <Folder className="mr-2 h-4 w-4" />
                                     {folder.name}
                                   </DropdownMenuItem>
@@ -891,7 +996,8 @@ export default function EnhancedDocumentsPage() {
                 <SelectValue placeholder="选择文件夹" />
               </SelectTrigger>
               <SelectContent>
-                {folders.map(folder => (
+                <SelectItem value="root">根目录</SelectItem>
+                {folders.filter(folder => folder.id !== 'root').map(folder => (
                   <SelectItem key={folder.id} value={folder.id}>
                     {folder.name}
                   </SelectItem>

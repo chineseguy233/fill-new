@@ -9,7 +9,9 @@ import {
   Search,
   FolderOpen,
   Shield,
-  Cloud
+  Cloud,
+  Folder,
+  Database
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -28,12 +30,15 @@ export default function Sidebar() {
   const location = useLocation()
   const [isUploadOpen, setIsUploadOpen] = useState(false)
   const { user } = useAuth()
+  const isAdmin = user?.role === 'admin' || user?.permissions?.canManageUsers
 
   const secondaryNavigation = [
     { name: '设置', href: '/settings', icon: Settings },
-    ...(user?.permissions?.canManageUsers ? [
+    ...(isAdmin ? [
       { name: '云存储配置', href: '/cloud-storage-config', icon: Cloud },
-      { name: '用户管理', href: '/user-management', icon: Shield }
+      { name: '用户管理', href: '/user-management', icon: Shield },
+      { name: '活动日志', href: '/admin-activity-logs', icon: Settings },
+      { name: '数据管理', href: '/data-management', icon: Database }
     ] : [])
   ]
 

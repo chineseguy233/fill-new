@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
+import { API_FOLDERS } from '../lib/apiBase'
 import { FolderOpen, Plus } from 'lucide-react'
 
 interface Folder {
@@ -36,24 +37,62 @@ export default function FolderSelector({ selectedFolderId, onFolderChange, class
     }
   }, [])
 
-  const loadFolders = () => {
+  const loadFolders = async () => {
     if (!isMountedRef.current) return
     
-    // 模拟获取文件夹列表
-    const mockFolders: Folder[] = [
-      { id: 'root', name: '根目录', path: '/' },
-      { id: 'documents', name: '文档', path: '/documents' },
-      { id: 'images', name: '图片', path: '/images' },
-      { id: 'projects', name: '项目文件', path: '/projects' },
-      { id: 'archive', name: '归档', path: '/archive' }
-    ]
-    
-    if (isMountedRef.current) {
-      setFolders(mockFolders)
+    try {
+      // 从后端获取文件夹列表
+      const response = await fetch(`${API_FOLDERS}`);
       
-      // 如果没有选中的文件夹，默认选择根目录
-      if (!selectedFolderId && mockFolders.length > 0) {
-        onFolderChange(mockFolders[0].id)
+      if (!response.ok) {
+        throw new Error('获取文件夹列表失败');
+      }
+      
+      const data = await response.json();
+      
+      if (data.success && data.data) {
+        // 转换后端数据格式为组件所需格式
+        const folderList: Folder[] = data.data.map((folder: any) => ({
+          id: folder.id,
+          name: folder.name,
+          path: folder.path || `/${folder.name}`
+        }));
+        
+        // 添加根目录选项
+        if (!folderList.some(f => f.id === 'root')) {
+          folderList.unshift({ id: 'root', name: '根目录', path: '/' });
+        }
+        
+        if (isMountedRef.current) {
+          setFolders(folderList);
+          
+          // 如果没有选中的文件夹，默认选择根目录
+          if (!selectedFolderId && folderList.length > 0) {
+            onFolderChange(folderList[0].id);
+          }
+        }
+      } else {
+        throw new Error(data.message || '获取文件夹列表失败');
+      }
+    } catch (error) {
+      console.error('加载文件夹失败:', error);
+      toast({
+        title: '加载文件夹失败',
+        description: error instanceof Error ? error.message : '无法获取文件夹列表',
+        variant: 'destructive'
+      });
+      
+      // 加载失败时使用默认文件夹
+      const defaultFolders: Folder[] = [
+        { id: 'root', name: '根目录', path: '/' }
+      ];
+      
+      if (isMountedRef.current) {
+        setFolders(defaultFolders);
+        
+        if (!selectedFolderId) {
+          onFolderChange(defaultFolders[0].id);
+        }
       }
     }
   }
@@ -71,40 +110,62 @@ export default function FolderSelector({ selectedFolderId, onFolderChange, class
 
     setIsCreating(true)
     try {
-      // 模拟创建文件夹
-      const newFolder: Folder = {
-        id: `folder_${Date.now()}`,
-        name: newFolderName.trim(),
-        path: `/${newFolderName.trim().toLowerCase().replace(/\s+/g, '-')}`
-      }
-
-      if (isMountedRef.current) {
-        // 更新文件夹列表
-        setFolders(prev => [...prev, newFolder])
-        
-        // 立即选中新创建的文件夹
-        onFolderChange(newFolder.id)
-        
-        // 清理表单并关闭对话框
-        setNewFolderName('')
-        setIsCreateDialogOpen(false)
-        
-        toast({
-          title: '文件夹创建成功',
-          description: `文件夹 "${newFolder.name}" 已创建并选中`
+      // 调用后端API创建文件夹
+      const response = await fetch(`${API_FOLDERS}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: newFolderName.trim()
         })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || '创建文件夹失败');
+      }
+      
+      const data = await response.json();
+      
+      if (data.success && data.data) {
+        const newFolder: Folder = {
+          id: data.data.id,
+          name: data.data.name,
+          path: data.data.path || `/${data.data.name}`
+        };
+        
+        if (isMountedRef.current) {
+          // 更新文件夹列表
+          setFolders(prev => [...prev, newFolder]);
+          
+          // 立即选中新创建的文件夹
+          onFolderChange(newFolder.id);
+          
+          // 清理表单并关闭对话框
+          setNewFolderName('');
+          setIsCreateDialogOpen(false);
+          
+          toast({
+            title: '文件夹创建成功',
+            description: `文件夹 "${newFolder.name}" 已创建并选中`
+          });
+        }
+      } else {
+        throw new Error(data.message || '创建文件夹失败');
       }
     } catch (error) {
       if (isMountedRef.current) {
+        console.error('创建文件夹失败:', error);
         toast({
           title: '创建文件夹失败',
-          description: '创建文件夹时发生错误',
+          description: error instanceof Error ? error.message : '创建文件夹时发生错误',
           variant: 'destructive'
-        })
+        });
       }
     } finally {
       if (isMountedRef.current) {
-        setIsCreating(false)
+        setIsCreating(false);
       }
     }
   }

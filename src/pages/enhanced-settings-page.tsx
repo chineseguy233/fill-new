@@ -25,9 +25,10 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
 import StorageSettingsPage from '@/pages/storage-settings-page'
+import { API_ORIGIN } from '@/lib/apiBase'
 
 export default function EnhancedSettingsPage() {
-  const { user, updateUser, changePassword } = useAuth()
+  const { user, updateUser } = useAuth()
   const { toast } = useToast()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -45,7 +46,7 @@ export default function EnhancedSettingsPage() {
     email: user?.email || 'zhangsan@example.com',
     department: '技术部',
     phone: '138****8888',
-    avatar: user?.avatar || ''
+    avatar: ''
   })
 
   // 密码修改
@@ -110,8 +111,7 @@ export default function EnhancedSettingsPage() {
     try {
       const result = await updateUser({
         username: profile.name,
-        email: profile.email,
-        avatar: profile.avatar
+        email: profile.email
       })
       
       if (result.success) {
@@ -156,7 +156,18 @@ export default function EnhancedSettingsPage() {
     }
 
     try {
-      const result = await changePassword(passwordForm.currentPassword, passwordForm.newPassword)
+      const resp = await fetch(`${API_ORIGIN}/api/users/${user?.id}/password`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          oldPassword: passwordForm.currentPassword,
+          newPassword: passwordForm.newPassword
+        })
+      });
+      const apiRes = await resp.json().catch(() => ({}));
+      const result = resp.ok && (apiRes?.success ?? true)
+        ? { success: true }
+        : { success: false, message: apiRes?.message || '密码修改失败' };
       
       if (result.success) {
         setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' })
@@ -207,10 +218,12 @@ export default function EnhancedSettingsPage() {
             <Palette className="h-4 w-4 mr-2" />
             外观
           </TabsTrigger>
-          <TabsTrigger value="storage">
-            <Database className="h-4 w-4 mr-2" />
-            存储
-          </TabsTrigger>
+          {user?.role === 'admin' && (
+            <TabsTrigger value="storage">
+              <Database className="h-4 w-4 mr-2" />
+              存储
+            </TabsTrigger>
+          )}
           <TabsTrigger value="permissions">
             <Users className="h-4 w-4 mr-2" />
             权限
@@ -545,9 +558,11 @@ export default function EnhancedSettingsPage() {
         </TabsContent>
 
         {/* Storage Settings */}
+        {user?.role === 'admin' && (
         <TabsContent value="storage" className="space-y-6">
           <StorageSettingsPage />
         </TabsContent>
+        )}
 
         {/* Permissions Settings */}
         <TabsContent value="permissions" className="space-y-6">

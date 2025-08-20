@@ -1,11 +1,13 @@
+import { API_FILES, API_ORIGIN } from './apiBase';
+
 // 后端存储服务
 class BackendStorageService {
-  private baseUrl = 'http://localhost:3001/api/files';
+  private baseUrl = API_FILES;
 
   // 检查后端服务是否可用
   async checkHealth(): Promise<boolean> {
     try {
-      const response = await fetch('http://localhost:3001/health');
+      const response = await fetch(`${API_ORIGIN}/health`);
       return response.ok;
     } catch (error) {
       console.warn('后端服务不可用:', error);
@@ -34,8 +36,24 @@ class BackendStorageService {
       if (metadata?.tags) formData.append('tags', metadata.tags);
       if (metadata?.folderId) formData.append('folderId', metadata.folderId);
 
+      // 注入当前用户信息：仅将 ID 放在请求头，姓名放入表单字段避免非 ASCII 头部错误
+      const headers: Record<string, string> = {};
+      try {
+        const raw = localStorage.getItem('currentUser');
+        const currentUser = raw ? JSON.parse(raw) : {};
+        if (currentUser?.id) {
+          headers['X-User-Id'] = String(currentUser.id);
+          formData.append('userId', String(currentUser.id));
+        }
+        if (currentUser?.username || currentUser?.name) {
+          // 姓名改为表单字段，避免浏览器因中文 Header 报错
+          formData.append('userName', String(currentUser.username || currentUser.name));
+        }
+      } catch {}
+
       const response = await fetch(`${this.baseUrl}/upload`, {
         method: 'POST',
+        headers,
         body: formData
       });
 
@@ -184,8 +202,18 @@ class BackendStorageService {
   // 删除文件
   async deleteFile(filename: string): Promise<{ success: boolean; message: string }> {
     try {
+      // 注入当前用户信息到请求头，便于后端进行删除权限校验
+      const headers: Record<string, string> = {};
+      try {
+        const raw = localStorage.getItem('currentUser');
+        const currentUser = raw ? JSON.parse(raw) : {};
+        if (currentUser?.id) headers['X-User-Id'] = String(currentUser.id);
+        if (currentUser?.role) headers['X-User-Role'] = String(currentUser.role);
+      } catch {}
+
       const response = await fetch(`${this.baseUrl}/delete/${encodeURIComponent(filename)}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers
       });
 
       const result = await response.json();

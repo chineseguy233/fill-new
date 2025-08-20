@@ -7,20 +7,28 @@ const storageConfig = require('../config/storage');
 const router = express.Router();
 
 // 文件夹数据存储（实际项目中应使用数据库）
-// 初始化一些默认文件夹
+// 只初始化根目录，其他文件夹由用户创建
 let folders = [
-  { id: 'root', name: '根目录', path: '/', parentId: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: 'system' },
-  { id: 'documents', name: '文档', path: '/文档', parentId: 'root', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: 'system' },
-  { id: 'images', name: '图片', path: '/图片', parentId: 'root', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: 'system' },
-  { id: 'videos', name: '视频', path: '/视频', parentId: 'root', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: 'system' },
-  { id: 'archives', name: '归档', path: '/归档', parentId: 'root', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: 'system' },
-  { id: 'work', name: '工作文件', path: '/工作文件', parentId: 'root', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: 'system' },
-  { id: 'personal', name: '个人文件', path: '/个人文件', parentId: 'root', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: 'system' }
+  { 
+    id: 'root', 
+    name: '根目录', 
+    path: '/', 
+    parentId: null, 
+    createdAt: new Date().toISOString(), 
+    updatedAt: new Date().toISOString(), 
+    createdBy: 'system',
+    visibility: 'public', // 'public' | 'private'
+    permissions: {
+      owner: 'system',
+      viewers: [], // 有查看权限的用户ID列表
+      editors: []  // 有编辑权限的用户ID列表
+    }
+  }
 ];
 
 // 尝试从文件加载文件夹数据
 try {
-  const folderDataPath = path.join(storageConfig.getStoragePath(), 'folders.json');
+  const folderDataPath = storageConfig.getSystemFilePath('folders.json');
   if (fs.existsSync(folderDataPath)) {
     const folderData = fs.readFileSync(folderDataPath, 'utf8');
     folders = JSON.parse(folderData);
@@ -37,7 +45,7 @@ try {
 // 保存文件夹数据到文件
 function saveFolders() {
   try {
-    const folderDataPath = path.join(storageConfig.getStoragePath(), 'folders.json');
+    const folderDataPath = storageConfig.getSystemFilePath('folders.json');
     fs.writeFileSync(folderDataPath, JSON.stringify(folders, null, 2), 'utf8');
     return true;
   } catch (error) {
@@ -126,7 +134,7 @@ router.get('/:id', (req, res) => {
 // 创建文件夹
 router.post('/', (req, res) => {
   try {
-    const { name, parentId = 'root', createdBy = 'system' } = req.body;
+    const { name, parentId = 'root', createdBy = 'system', visibility = 'public', permissions = {} } = req.body;
     
     if (!name) {
       return res.status(400).json({
@@ -164,7 +172,13 @@ router.post('/', (req, res) => {
       parentId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      createdBy
+      createdBy,
+      visibility, // 'public' | 'private'
+      permissions: {
+        owner: createdBy,
+        viewers: permissions.viewers || [],
+        editors: permissions.editors || []
+      }
     };
     
     folders.push(newFolder);
@@ -382,6 +396,157 @@ router.get('/:id/path', (req, res) => {
     res.status(500).json({
       success: false,
       message: '获取文件夹路径失败',
+      error: error.message
+    });
+  }
+});
+
+// 更新文件夹权限
+router.put('/:id/permissions', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { visibility, permissions, userId } = req.body;
+    
+    const folderIndex = folders.findIndex(folder => folder.id === id);
+    
+    if (folderIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: '文件夹不存在'
+      });
+    }
+    
+    const folder = folders[folderIndex];
+    
+    // 检查权限：只有文件夹所有者可以修改权限
+    if (folder.permissions.owner !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: '只有文件夹所有者可以修改权限'
+      });
+    }
+    
+    // 更新权限
+    folders[folderIndex] = {
+      ...folder,
+      visibility: visibility || folder.visibility,
+      permissions: {
+        owner: folder.permissions.owner,
+        viewers: permissions?.viewers || folder.permissions.viewers,
+        editors: permissions?.editors || folder.permissions.editors
+      },
+      updatedAt: new Date().toISOString()
+    };
+    
+    // 保存到文件
+    saveFolders();
+    
+    res.json({
+      success: true,
+      message: '权限更新成功',
+      data: folders[folderIndex]
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: '更新权限失败',
+      error: error.message
+    });
+  }
+});
+
+// 检查用户对文件夹的访问权限
+router.get('/:id/access/:userId', (req, res) => {
+  try {
+    const { id, userId } = req.params;
+    
+    const folder = folders.find(folder => folder.id === id);
+    
+    if (!folder) {
+      return res.status(404).json({
+        success: false,
+        message: '文件夹不存在'
+      });
+    }
+    
+    let hasAccess = false;
+    let accessLevel = 'none'; // 'none', 'view', 'edit', 'owner'
+    
+    // 检查访问权限
+    if (folder.permissions.owner === userId) {
+      hasAccess = true;
+      accessLevel = 'owner';
+    } else if (folder.visibility === 'public') {
+      hasAccess = true;
+      accessLevel = 'view';
+      
+      // 检查是否有编辑权限
+      if (folder.permissions.editors.includes(userId)) {
+        accessLevel = 'edit';
+      }
+    } else if (folder.visibility === 'private') {
+      // 私有文件夹需要明确授权
+      if (folder.permissions.viewers.includes(userId)) {
+        hasAccess = true;
+        accessLevel = 'view';
+      }
+      
+      if (folder.permissions.editors.includes(userId)) {
+        hasAccess = true;
+        accessLevel = 'edit';
+      }
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        hasAccess,
+        accessLevel,
+        visibility: folder.visibility
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: '检查权限失败',
+      error: error.message
+    });
+  }
+});
+
+// 获取用户可访问的文件夹列表
+router.get('/accessible/:userId', (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const accessibleFolders = folders.filter(folder => {
+      // 所有者可以访问
+      if (folder.permissions.owner === userId) {
+        return true;
+      }
+      
+      // 公开文件夹所有人都可以访问
+      if (folder.visibility === 'public') {
+        return true;
+      }
+      
+      // 私有文件夹需要明确授权
+      if (folder.visibility === 'private') {
+        return folder.permissions.viewers.includes(userId) || 
+               folder.permissions.editors.includes(userId);
+      }
+      
+      return false;
+    });
+    
+    res.json({
+      success: true,
+      data: accessibleFolders
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: '获取可访问文件夹失败',
       error: error.message
     });
   }

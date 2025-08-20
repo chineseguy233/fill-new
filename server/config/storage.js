@@ -54,8 +54,11 @@ class StorageConfig {
   async ensureStorageDirectory() {
     try {
       await fs.ensureDir(this.storagePath);
+      const systemDir = path.join(this.storagePath, 'system');
+      await fs.ensureDir(systemDir);
       console.log(`存储目录已创建/确认: ${this.storagePath}`);
-      return { success: true, path: this.storagePath };
+      console.log(`系统目录已创建/确认: ${systemDir}`);
+      return { success: true, path: this.storagePath, systemPath: systemDir };
     } catch (error) {
       console.error('创建存储目录失败:', error);
       return { success: false, error: error.message };
@@ -65,6 +68,16 @@ class StorageConfig {
   // 获取文件完整路径
   getFilePath(filename) {
     return path.join(this.storagePath, filename);
+  }
+
+  // 获取系统配置目录路径
+  getSystemDir() {
+    return path.join(this.storagePath, 'system');
+  }
+
+  // 获取系统配置文件完整路径
+  getSystemFilePath(filename) {
+    return path.join(this.getSystemDir(), filename);
   }
 
   // 获取存储统计信息

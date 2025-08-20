@@ -44,18 +44,35 @@ export default function FileMoveDialog({
   }, [isOpen])
 
   const loadFolders = () => {
-    // 模拟获取文件夹列表
-    const mockFolders: Folder[] = [
-      { id: 'root', name: '根目录', path: '/' },
-      { id: 'documents', name: '文档', path: '/documents' },
-      { id: 'images', name: '图片', path: '/images' },
-      { id: 'projects', name: '项目文件', path: '/projects' },
-      { id: 'archive', name: '归档', path: '/archive' }
-    ]
-    
-    // 过滤掉当前文件夹
-    const availableFolders = mockFolders.filter(folder => folder.id !== currentFolderId)
-    setFolders(availableFolders)
+    try {
+      // 从localStorage加载真实的文件夹数据
+      const storedFolders = localStorage.getItem('folders')
+      let allFolders: Folder[] = []
+      
+      if (storedFolders) {
+        const parsedFolders = JSON.parse(storedFolders)
+        allFolders = parsedFolders.map((folder: any) => ({
+          id: folder.id,
+          name: folder.name,
+          path: folder.path || `/${folder.name}`
+        }))
+      }
+      
+      // 确保根目录存在
+      if (!allFolders.find(f => f.id === 'root')) {
+        allFolders.unshift({ id: 'root', name: '根目录', path: '/' })
+      }
+      
+      // 过滤掉当前文件夹
+      const availableFolders = allFolders.filter(folder => folder.id !== currentFolderId)
+      setFolders(availableFolders)
+      
+      console.log('加载的文件夹列表:', availableFolders)
+    } catch (error) {
+      console.error('加载文件夹失败:', error)
+      // 如果加载失败，至少提供根目录
+      setFolders([{ id: 'root', name: '根目录', path: '/' }])
+    }
   }
 
   const handleCreateFolder = async () => {
@@ -69,23 +86,57 @@ export default function FileMoveDialog({
 
     setIsCreatingFolder(true)
     try {
-      // 模拟创建文件夹
+      // 创建新文件夹
       const newFolder: Folder = {
         id: `folder_${Date.now()}`,
         name: newFolderName.trim(),
         path: `/${newFolderName.trim().toLowerCase().replace(/\s+/g, '-')}`
       }
 
-      // 更新文件夹列表并立即选中新文件夹
+      // 保存到localStorage
+      const storedFolders = localStorage.getItem('folders')
+      let allFolders = []
+      
+      if (storedFolders) {
+        allFolders = JSON.parse(storedFolders)
+      }
+      
+      // 检查是否已存在同名文件夹
+      const existingFolder = allFolders.find((f: any) => f.name === newFolder.name)
+      if (existingFolder) {
+        toast({
+          title: '文件夹已存在',
+          description: `文件夹 "${newFolder.name}" 已存在`,
+          variant: 'destructive'
+        })
+        return
+      }
+      
+      // 添加新文件夹到localStorage
+      allFolders.push({
+        id: newFolder.id,
+        name: newFolder.name,
+        path: newFolder.path,
+        parentId: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      })
+      
+      localStorage.setItem('folders', JSON.stringify(allFolders))
+
+      // 更新本地状态并立即选中新文件夹
       setFolders(prev => [...prev, newFolder])
       setSelectedFolderId(newFolder.id)
       setNewFolderName('')
+      
+      console.log('新文件夹已创建并保存:', newFolder)
       
       toast({
         title: '文件夹创建成功',
         description: `文件夹 "${newFolder.name}" 已创建并选中`
       })
     } catch (error) {
+      console.error('创建文件夹失败:', error)
       toast({
         title: '创建文件夹失败',
         description: '创建文件夹时发生错误',
@@ -107,14 +158,44 @@ export default function FileMoveDialog({
 
     setIsMoving(true)
     try {
-      // 模拟文件移动
       const targetFolder = folders.find(f => f.id === selectedFolderId)
       
-      // 在实际应用中，这里会调用API移动文件
-      console.log(`移动文件 ${fileName} (ID: ${fileId}) 到文件夹 ${targetFolder?.name}`)
+      // 更新localStorage中的文档数据
+      const storedDocuments = localStorage.getItem('documents')
+      if (storedDocuments) {
+        const documents = JSON.parse(storedDocuments)
+        const documentIndex = documents.findIndex((doc: any) => doc.id === fileId)
+        
+        if (documentIndex !== -1) {
+          // 更新文档的文件夹ID
+          documents[documentIndex].folderId = selectedFolderId
+          documents[documentIndex].updatedAt = new Date().toISOString()
+          
+          // 保存更新后的文档数据
+          localStorage.setItem('documents', JSON.stringify(documents))
+          
+          console.log(`文件 ${fileName} 已移动到文件夹 ${targetFolder?.name}`)
+        }
+      }
       
-      // 模拟API调用延迟
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      // 调用后端API移动文件（如果需要）
+      try {
+        const response = await fetch(`/api/files/move/${fileId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            folderId: selectedFolderId
+          })
+        })
+        
+        if (!response.ok) {
+          console.warn('后端API调用失败，但本地数据已更新')
+        }
+      } catch (apiError) {
+        console.warn('后端API不可用，仅更新本地数据:', apiError)
+      }
       
       toast({
         title: '文件移动成功',
@@ -124,6 +205,7 @@ export default function FileMoveDialog({
       onMoveComplete()
       onClose()
     } catch (error) {
+      console.error('文件移动失败:', error)
       toast({
         title: '文件移动失败',
         description: '移动文件时发生错误',

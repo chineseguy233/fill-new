@@ -5,7 +5,8 @@ import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogTrigger, DialogTitle } from '@/components/ui/dialog'
 import DocumentUpload from '@/components/DocumentUpload'
 import { useAuth } from '@/contexts/AuthContext'
-import { initializeTestData } from '@/utils/testData'
+import { getDashboardStats, initializeEmptyData } from '@/utils/dataManager'
+import { API_FILES } from '@/lib/apiBase'
 import { 
   FileText, 
   Upload, 
@@ -186,29 +187,46 @@ export default function DashboardPage() {
   }
 
   // 加载仪表盘数据
-  const loadDashboardData = () => {
+  const loadDashboardData = async () => {
     try {
-      const storedDocs = JSON.parse(localStorage.getItem('documents') || '[]')
-      const activityStats = getUserActivityStats()
+      // 从后端获取存储统计信息
+      const storageResponse = await fetch(`${API_FILES}/storage/stats`);
+      if (!storageResponse.ok) {
+        throw new Error('获取存储统计失败');
+      }
+      const storageData = await storageResponse.json();
+      
+      // 从后端获取文件列表
+      const filesResponse = await fetch(`${API_FILES}/list`);
+      if (!filesResponse.ok) {
+        throw new Error('获取文件列表失败');
+      }
+      const filesData = await filesResponse.json();
+      
+      // 获取用户活动统计
+      const activityStats = getUserActivityStats();
       
       // 计算统计数据
-      const totalDocs = storedDocs.length
-      const currentMonth = new Date().getMonth()
-      const currentYear = new Date().getFullYear()
+      const totalDocs = storageData.data?.totalFiles || 0;
+      const totalSize = storageData.data?.totalSize || 0;
       
-      const thisMonthDocs = storedDocs.filter((doc: any) => {
-        const docDate = new Date(doc.createdAt)
-        return docDate.getMonth() === currentMonth && docDate.getFullYear() === currentYear
-      }).length
-
-      const totalViews = storedDocs.reduce((sum: number, doc: any) => sum + (doc.views || 0), 0)
+      // 计算本月上传的文件数量
+      const currentMonth = new Date().getMonth();
+      const currentYear = new Date().getFullYear();
+      const files = filesData.data?.files || [];
+      
+      const thisMonthDocs = files.filter((file: any) => {
+        if (!file.stats || !file.stats.mtime) return false;
+        const fileDate = new Date(file.stats.mtime);
+        return fileDate.getMonth() === currentMonth && fileDate.getFullYear() === currentYear;
+      }).length;
       
       // 所有用户都可以看到用户行为统计
       setStats([
         {
           title: '总文档数',
           value: totalDocs.toString(),
-          change: `今日访问: ${activityStats.today.visits}`,
+          change: `总大小: ${formatFileSize(totalSize)}`,
           icon: FileText,
           color: 'text-blue-600'
         },
@@ -221,7 +239,7 @@ export default function DashboardPage() {
         },
         {
           title: '总查看次数',
-          value: totalViews.toString(),
+          value: activityStats.month.views.toString(),
           change: `今日查看: ${activityStats.today.views}`,
           icon: Eye,
           color: 'text-purple-600'
@@ -233,9 +251,10 @@ export default function DashboardPage() {
           icon: Download,
           color: 'text-orange-600'
         }
-      ])
+      ]);
 
-      // 获取最近文档（按修改时间排序）
+      // 获取最近文档（从localStorage获取）
+      const storedDocs = JSON.parse(localStorage.getItem('documents') || '[]')
       const recentDocs = storedDocs
         .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         .slice(0, 4)
@@ -255,7 +274,7 @@ export default function DashboardPage() {
       const favoriteDetails = JSON.parse(localStorage.getItem('favoriteDetails') || '{}')
       
       // 从后端获取文件列表来匹配收藏的文件
-      fetch('http://localhost:3001/api/files/list')
+      fetch(`${API_FILES}/list`)
         .then(response => response.json())
         .then(data => {
           const files = data.data?.files || []
@@ -293,8 +312,8 @@ export default function DashboardPage() {
 
   // 组件挂载时加载数据
   useEffect(() => {
-    // 初始化测试数据（如果没有数据的话）
-    initializeTestData()
+    // 初始化空数据结构（如果需要）
+    initializeEmptyData()
     
     // 记录页面访问
     recordUserActivity('visit', { page: 'dashboard' })

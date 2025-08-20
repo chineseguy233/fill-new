@@ -21,10 +21,12 @@ import {
 } from 'lucide-react'
 import { StoragePathSelector } from '@/components/StoragePathSelector'
 import StorageStatus from '@/components/StorageStatus'
+import { setCurrentUserAsAdmin, checkCurrentUserPermissions } from '@/utils/adminSetup'
 
 export default function SettingsPage() {
   const { user, updateUser } = useAuth()
   const { toast } = useToast()
+  const isAdmin = user?.role === 'admin' || user?.permissions?.canManageUsers
   
   const [notifications, setNotifications] = useState({
     email: true,
@@ -115,10 +117,12 @@ export default function SettingsPage() {
             <Palette className="h-4 w-4" />
             <span>外观</span>
           </TabsTrigger>
-          <TabsTrigger value="storage" className="flex items-center space-x-2">
-            <Database className="h-4 w-4" />
-            <span>存储</span>
-          </TabsTrigger>
+          {isAdmin && (
+            <TabsTrigger value="storage" className="flex items-center space-x-2">
+              <Database className="h-4 w-4" />
+              <span>存储</span>
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* Profile Settings */}
@@ -133,7 +137,7 @@ export default function SettingsPage() {
             <CardContent className="space-y-6">
               <div className="flex items-center space-x-4">
                 <Avatar className="h-20 w-20">
-                  <AvatarImage src={user?.avatar || "/placeholder.svg?height=80&width=80"} />
+                  <AvatarImage src={"/placeholder.svg?height=80&width=80"} />
                   <AvatarFallback className="text-lg">
                     {user?.username?.slice(0, 2) || '用户'}
                   </AvatarFallback>
@@ -307,6 +311,56 @@ export default function SettingsPage() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
+                    <Label>管理员权限设置</Label>
+                    <p className="text-sm text-gray-500">临时设置当前用户为管理员（开发调试用）</p>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => {
+                      const success = setCurrentUserAsAdmin()
+                      if (success) {
+                        toast({
+                          title: "设置成功",
+                          description: "当前用户已设置为管理员，管理员菜单将自动显示",
+                        })
+                      } else {
+                        toast({
+                          title: "设置失败",
+                          description: "无法设置管理员权限",
+                          variant: "destructive",
+                        })
+                      }
+                    }}
+                  >
+                    设为管理员
+                  </Button>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>检查当前权限</Label>
+                    <p className="text-sm text-gray-500">查看当前用户的角色和权限信息</p>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => {
+                      const userInfo = checkCurrentUserPermissions()
+                      if (userInfo) {
+                        toast({
+                          title: "当前用户信息",
+                          description: `角色: ${userInfo.role === 'admin' ? '管理员' : '普通用户'}, 用户名: ${userInfo.username}`,
+                        })
+                      }
+                    }}
+                  >
+                    检查权限
+                  </Button>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div>
                     <Label>两步验证</Label>
                     <p className="text-sm text-gray-500">为您的账户添加额外的安全层</p>
                   </div>
@@ -390,6 +444,7 @@ export default function SettingsPage() {
         </TabsContent>
 
         {/* Storage Settings */}
+        {isAdmin && (
         <TabsContent value="storage" className="space-y-6">
           {/* Storage Path Configuration */}
           <StoragePathSelector />
@@ -476,6 +531,7 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+        )}
       </Tabs>
     </div>
   )

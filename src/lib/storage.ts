@@ -1,3 +1,5 @@
+import { API_ORIGIN, API_FILES } from './apiBase'
+
 // 本地存储配置服务
 export interface StorageConfig {
   type: 'local' | 'cloud'
@@ -55,55 +57,67 @@ class StorageService {
     return windowsPathRegex.test(path) || unixPathRegex.test(path)
   }
 
-  // 创建本地存储目录（模拟）
+  // 创建本地存储目录（改为走后端API，后端会同时创建 system 子目录并持久化配置）
   async createLocalDirectory(path: string): Promise<{ success: boolean; message: string }> {
     try {
       if (!this.validatePath(path)) {
         return { success: false, message: '路径格式无效' }
       }
 
-      // 在实际应用中，这里会创建真实的目录
-      // 这里我们模拟目录创建
-      console.log(`模拟创建目录: ${path}`)
-      
-      return { success: true, message: '目录创建成功' }
+      const response = await fetch(`${API_ORIGIN}/api/files/storage/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storagePath: path })
+      })
+      const result = await response.json()
+
+      if (response.ok && result.success) {
+        return { success: true, message: '目录创建成功' }
+      }
+      return { success: false, message: result.message || '目录创建失败' }
     } catch (error) {
+      console.error('创建目录失败:', error)
       return { success: false, message: '目录创建失败' }
     }
   }
 
-  // 通过后端API保存文件
+  // 通过后端API保存文件（附带当前用户头信息，便于记录作者与活动日志）
   async saveFileViaBackend(file: File): Promise<{ success: boolean; message?: string; data?: any }> {
     try {
       const formData = new FormData()
       formData.append('files', file)
       formData.append('title', file.name)
       formData.append('description', `上传于 ${new Date().toLocaleString()}`)
-      
-      const response = await fetch('http://localhost:3001/api/files/upload', {
+
+      const headers: Record<string, string> = {}
+      try {
+        const raw = localStorage.getItem('currentUser')
+        const currentUser = raw ? JSON.parse(raw) : null
+        if (currentUser?.id) {
+          headers['X-User-Id'] = String(currentUser.id)
+          formData.append('userId', String(currentUser.id))
+        }
+        if (currentUser?.username || currentUser?.name) {
+          // 避免中文放入请求头导致浏览器错误，放入表单字段
+          formData.append('userName', String(currentUser.username || currentUser.name))
+        }
+      } catch {}
+
+      const response = await fetch(`${API_FILES}/upload`, {
         method: 'POST',
+        headers, // 不设置 Content-Type，浏览器会为 FormData 自动带 boundary
         body: formData
       })
-      
+
       const result = await response.json()
-      
+
       if (response.ok && result.success) {
-        return {
-          success: true,
-          data: result.data
-        }
-      } else {
-        return {
-          success: false,
-          message: result.message || '后端上传失败'
-        }
+        return { success: true, data: result.data }
       }
+      return { success: false, message: result.message || '后端上传失败' }
     } catch (error) {
       console.error('后端API调用失败:', error)
-      return {
-        success: false,
-        message: '无法连接到后端服务'
-      }
+      return { success: false, message: '无法连接到后端服务' }
     }
   }
 

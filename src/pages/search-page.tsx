@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { searchDocuments, SearchResult } from '@/utils/dataManager'
 import { 
   Search, 
   FileText, 
@@ -15,18 +16,6 @@ import {
   Clock
 } from 'lucide-react'
 
-interface SearchResult {
-  id: string
-  type: 'document' | 'folder' | 'user'
-  title: string
-  description?: string
-  content?: string
-  author?: string
-  createdAt: string
-  tags?: string[]
-  relevance: number
-}
-
 export default function SearchPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
@@ -34,51 +23,7 @@ export default function SearchPage() {
   const [activeTab, setActiveTab] = useState('all')
   const [recentSearches, setRecentSearches] = useState<string[]>([])
 
-  // 模拟搜索结果
-  const mockSearchResults: SearchResult[] = [
-    {
-      id: '1',
-      type: 'document',
-      title: '项目需求文档 v2.1',
-      description: '详细的项目需求说明和功能规格',
-      content: '本文档包含了项目的详细需求分析...',
-      author: '张三',
-      createdAt: '2024-01-15',
-      tags: ['项目', '需求', '规格'],
-      relevance: 95
-    },
-    {
-      id: '2',
-      type: 'document',
-      title: '技术架构设计',
-      description: '系统技术架构和设计方案',
-      content: '采用微服务架构，前后端分离...',
-      author: '李四',
-      createdAt: '2024-01-12',
-      tags: ['技术', '架构', '设计'],
-      relevance: 88
-    },
-    {
-      id: '3',
-      type: 'folder',
-      title: '项目文档',
-      description: '包含所有项目相关文档',
-      author: '王五',
-      createdAt: '2024-01-10',
-      relevance: 82
-    },
-    {
-      id: '4',
-      type: 'document',
-      title: '用户手册',
-      description: '系统使用说明和操作指南',
-      content: '本手册将指导您如何使用系统...',
-      author: '赵六',
-      createdAt: '2024-01-08',
-      tags: ['手册', '使用', '指南'],
-      relevance: 75
-    }
-  ]
+  // 搜索结果现在通过 searchDocuments 函数动态获取
 
   // 加载最近搜索
   useEffect(() => {
@@ -97,23 +42,21 @@ export default function SearchPage() {
 
     setIsSearching(true)
     
-    // 模拟搜索延迟
-    setTimeout(() => {
-      const filtered = mockSearchResults.filter(result =>
-        result.title.toLowerCase().includes(term.toLowerCase()) ||
-        result.description?.toLowerCase().includes(term.toLowerCase()) ||
-        result.content?.toLowerCase().includes(term.toLowerCase()) ||
-        result.tags?.some(tag => tag.toLowerCase().includes(term.toLowerCase()))
-      )
-      
-      setSearchResults(filtered.sort((a, b) => b.relevance - a.relevance))
-      setIsSearching(false)
+    // 使用真实的搜索功能
+    try {
+      const results = searchDocuments(term)
+      setSearchResults(results)
       
       // 保存到最近搜索
       const newRecentSearches = [term, ...recentSearches.filter(s => s !== term)].slice(0, 5)
       setRecentSearches(newRecentSearches)
       localStorage.setItem('recent_searches', JSON.stringify(newRecentSearches))
-    }, 800)
+    } catch (error) {
+      console.error('搜索失败:', error)
+      setSearchResults([])
+    } finally {
+      setIsSearching(false)
+    }
   }
 
   // 处理搜索输入

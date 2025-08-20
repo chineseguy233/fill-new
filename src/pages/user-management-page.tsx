@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog'
 import { useToast } from '@/hooks/use-toast'
-import { authService, User } from '@/lib/auth'
+import { getAllUsers, updateUser, deleteUser, User } from '@/lib/auth'
 import { Shield, Settings, Trash2 } from 'lucide-react'
 
 export default function UserManagementPage() {
@@ -25,7 +25,7 @@ export default function UserManagementPage() {
   const loadUsers = async () => {
     setLoading(true)
     try {
-      const result = await authService.getAllUsers()
+      const result = await getAllUsers()
       if (result.success && result.users) {
         setUsers(result.users)
       } else {
@@ -48,7 +48,7 @@ export default function UserManagementPage() {
 
   const handleRoleChange = async (userId: string, newRole: 'admin' | 'user') => {
     try {
-      const result = await authService.updateUserRole(userId, newRole)
+      const result = await updateUser(userId, { role: newRole })
       if (result.success) {
         toast({
           title: '更新成功',
@@ -75,8 +75,11 @@ export default function UserManagementPage() {
     if (!selectedUser) return
 
     try {
-      const result = await authService.updateUserPermissions(selectedUser.id, {
-        [permission]: value
+      const result = await updateUser(selectedUser.id, {
+        permissions: {
+          ...selectedUser.permissions,
+          [permission]: value
+        }
       })
       if (result.success) {
         toast({
@@ -110,7 +113,7 @@ export default function UserManagementPage() {
 
   const handleDeleteUser = async (userId: string) => {
     try {
-      const result = await authService.deleteUser(userId)
+      const result = await deleteUser(userId)
       if (result.success) {
         toast({
           title: '删除成功',

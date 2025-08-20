@@ -1,0 +1,66 @@
+[
+  {
+    "id": "demo_user_001",
+    "username": "演示用户",
+    "email": "demo@example.com",
+    "phone": "13800138000",
+    "role": "admin",
+    "permissions": {
+      "canUpload": true,
+      "canDownload": true,
+      "canView": true,
+      "canDelete": true,
+      "canManageUsers": true
+    },
+    "createdAt": "2025-08-19T03:13:36.435Z",
+    "password": "123456"
+  },
+  {
+    "id": "user_1755574928126_lrnvzcner",
+    "username": "wupeng",
+    "email": "13809337025@139.com",
+    "phone": "13809337025",
+    "role": "user",
+    "permissions": {
+      "canUpload": true,
+      "canDownload": true,
+      "canView": true,
+      "canDelete": false,
+      "canManageUsers": false
+    },
+    "createdAt": "2025-08-19T03:42:08.126Z",
+    "password": "123456"
+  },
+  {
+    "id": "user_1755585670560_mk100470w",
+    "username": "lisa",
+    "email": "lisa@139.com",
+    "phone": "13993333603",
+    "role": "user",
+    "permissions": {
+      "canUpload": true,
+      "canDownload": true,
+      "canView": true,
+      "canDelete": false,
+      "canManageUsers": false
+    },
+    "createdAt": "2025-08-19T06:41:10.560Z",
+    "password": "123456"
+  },
+  {
+    "id": "user_1755675231381_ehuxibqsm",
+    "username": "luminna",
+    "email": "luminna316@163.com",
+    "phone": "15609333901",
+    "role": "admin",
+    "permissions": {
+      "canUpload": true,
+      "canDownload": true,
+      "canView": true,
+      "canDelete": true,
+      "canManageUsers": true
+    },
+    "createdAt": "2025-08-20T07:33:51.381Z",
+    "password": "123123"
+  }
+]

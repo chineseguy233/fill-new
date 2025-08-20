@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { FolderOpen, Check, AlertCircle } from 'lucide-react'
 import { storageService } from '../lib/storage'
 import { useToast } from './ui/use-toast'
+import { API_FILES } from '../lib/apiBase'
 
 interface StoragePathSelectorProps {
   onPathChange?: (path: string) => void
@@ -18,10 +19,24 @@ export function StoragePathSelector({ onPathChange }: StoragePathSelectorProps) 
   const { toast } = useToast()
 
   useEffect(() => {
-    // 获取当前存储配置
-    const config = storageService.getStorageConfig()
-    setCurrentPath(config.localPath || 'D:\\DOC_STORAGE')
-    setCustomPath(config.localPath || 'D:\\DOC_STORAGE')
+    // 优先从后端读取当前存储路径，其次回退本地配置
+    (async () => {
+      try {
+        const resp = await fetch(`${API_FILES}/storage/config`);
+        const data = await resp.json();
+        if (resp.ok && data?.success && data?.data?.storagePath) {
+          const p = data.data.storagePath || 'D:\\DOC_STORAGE';
+          setCurrentPath(p);
+          setCustomPath(p);
+          return;
+        }
+      } catch (e) {
+        // 忽略，回退到本地配置
+      }
+      const config = storageService.getStorageConfig();
+      setCurrentPath(config.localPath || 'D:\\DOC_STORAGE');
+      setCustomPath(config.localPath || 'D:\\DOC_STORAGE');
+    })();
   }, [])
 
   const handlePathValidation = (path: string) => {
@@ -60,38 +75,41 @@ export function StoragePathSelector({ onPathChange }: StoragePathSelectorProps) 
       })
       return
     }
-
+  
     try {
-      // 尝试创建目录
-      const result = await storageService.createLocalDirectory(customPath)
-      
-      if (result.success) {
-        // 保存配置
-        storageService.saveStorageConfig({
-          type: 'local',
-          localPath: customPath
-        })
-        
-        setCurrentPath(customPath)
-        onPathChange?.(customPath)
-        
+      // 调用后端设置存储路径，后端会确保目录与 system 子目录存在
+      const resp = await fetch(`${API_FILES}/storage/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storagePath: customPath })
+      });
+      const data = await resp.json();
+  
+      if (resp.ok && data?.success) {
+        const updated = data?.data?.storagePath || customPath;
+  
+        // 可选：同步一份到本地配置，保持前端其它逻辑兼容
+        storageService.saveStorageConfig({ type: 'local', localPath: updated });
+  
+        setCurrentPath(updated);
+        onPathChange?.(updated);
         toast({
           title: "存储路径已更新",
-          description: `文件将保存到: ${customPath}`,
-        })
+          description: `文件将保存到: ${updated}`,
+        });
       } else {
         toast({
           title: "路径设置失败",
-          description: result.message,
+          description: data?.message || "后端拒绝了该路径，请检查权限或有效性",
           variant: "destructive"
-        })
+        });
       }
     } catch (error) {
       toast({
         title: "设置失败",
-        description: "无法设置存储路径，请检查路径权限",
+        description: "无法设置存储路径，请检查后端服务与路径权限",
         variant: "destructive"
-      })
+      });
     }
   }
 
@@ -136,7 +154,8 @@ export function StoragePathSelector({ onPathChange }: StoragePathSelectorProps) 
             <Button
               type="button"
               variant="outline"
-              onClick={handleSelectPath}
+              disabled
+              title="浏览器不支持目录选择，请手动输入路径"
               className="shrink-0"
             >
               <FolderOpen className="h-4 w-4 mr-2" />

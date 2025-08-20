@@ -19,6 +19,7 @@ import {
   MessageSquare,
   Send
 } from 'lucide-react'
+import { API_FILES } from '@/lib/apiBase'
 
 export default function DocumentDetailPage() {
   const { id } = useParams()
@@ -400,7 +401,7 @@ export default function DocumentDetailPage() {
                     const file = documentData.files[0];
                     if (file.filename) {
                       // 在新窗口中打开预览
-                      const previewUrl = `http://localhost:3001/api/files/preview/${encodeURIComponent(file.filename)}`;
+                      const previewUrl = `${API_FILES}/preview/${encodeURIComponent(file.filename)}`;
                       window.open(previewUrl, '_blank');
                     }
                   }
@@ -422,7 +423,7 @@ export default function DocumentDetailPage() {
                     if (supportedPreviewTypes.includes(fileType)) {
                       return (
                         <iframe 
-                          src={`http://localhost:3001/api/files/preview/${encodeURIComponent(file.filename)}`}
+                          src={`${API_FILES}/preview/${encodeURIComponent(file.filename)}`}
                           className="w-full h-[500px] border-0"
                           title={documentData.name}
                         />
