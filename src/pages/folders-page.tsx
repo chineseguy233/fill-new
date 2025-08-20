@@ -370,6 +370,86 @@ export default function FoldersPage() {
     })
   }
 
+  // 处理权限更改
+  const handlePermissionChange = async (value: 'public' | 'private') => {
+    if (!permissionFolder) return
+
+    try {
+      const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}')
+      
+      // 尝试通过API更新权限
+      try {
+        const response = await fetch(`${API_FOLDERS}/${permissionFolder.id}/permissions`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            visibility: value,
+            userId: currentUser.id || 'anonymous'
+          })
+        })
+
+        if (response.ok) {
+          const result = await response.json()
+          if (result.success) {
+            const updatedFolder = {
+              ...permissionFolder,
+              visibility: value
+            }
+            setPermissionFolder(updatedFolder)
+            setFolders(prev => prev.map(f => 
+              f.id === permissionFolder.id ? updatedFolder : f
+            ))
+            
+            toast({
+              title: "权限更新成功",
+              description: `文件夹 "${permissionFolder.name}" 的可见性已更新`,
+            })
+            return
+          }
+        }
+        throw new Error('API更新失败')
+      } catch (apiError) {
+        console.warn('API权限更新失败，使用本地更新:', apiError)
+        
+        // API失败，本地更新
+        const updatedFolder = {
+          ...permissionFolder,
+          visibility: value
+        }
+        setPermissionFolder(updatedFolder)
+        setFolders(prev => prev.map(f => 
+          f.id === permissionFolder.id ? updatedFolder : f
+        ))
+        
+        // 保存到localStorage
+        const existingFolders = JSON.parse(localStorage.getItem('folders') || '[]')
+        const updatedFolders = existingFolders.map((f: any) => 
+          f.id === permissionFolder.id ? { ...f, visibility: value } : f
+        )
+        localStorage.setItem('folders', JSON.stringify(updatedFolders))
+        
+        // 触发存储事件，通知其他组件更新
+        window.dispatchEvent(new CustomEvent('folderPermissionUpdated', {
+          detail: { folderId: permissionFolder.id, visibility: value }
+        }))
+        
+        toast({
+          title: "权限更新成功",
+          description: `文件夹 "${permissionFolder.name}" 的可见性已更新（本地保存）`,
+        })
+      }
+    } catch (error) {
+      console.error('权限更新失败:', error)
+      toast({
+        title: "权限更新失败",
+        description: "更新文件夹权限时发生错误",
+        variant: "destructive",
+      })
+    }
+  }
+
   // 删除文件夹
   const handleDeleteFolder = async (folder: FolderItem) => {
     try {
@@ -700,84 +780,7 @@ export default function FoldersPage() {
               <Label>可见性设置</Label>
               <Select 
                 value={permissionFolder?.visibility || 'public'} 
-                onValueChange={async (value: 'public' | 'private') => {
-                  if (permissionFolder) {
-                    try {
-                      const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}')
-                      
-                      // 尝试通过API更新权限
-                      try {
-                        const response = await fetch(`${API_FOLDERS}/${permissionFolder.id}/permissions`, {
-                          method: 'PUT',
-                          headers: {
-                            'Content-Type': 'application/json',
-                          },
-                          body: JSON.stringify({
-                            visibility: value,
-                            userId: currentUser.id || 'anonymous'
-                          })
-                        })
-
-                        if (response.ok) {
-                          const result = await response.json()
-                          if (result.success) {
-                            const updatedFolder = {
-                              ...permissionFolder,
-                              visibility: value
-                            }
-                            setPermissionFolder(updatedFolder)
-                            setFolders(prev => prev.map(f => 
-                              f.id === permissionFolder.id ? updatedFolder : f
-                            ))
-                            
-                            toast({
-                              title: "权限更新成功",
-                              description: `文件夹 "${permissionFolder.name}" 的可见性已更新`,
-                            })
-                            return
-                          }
-                        }
-                        throw new Error('API更新失败')
-                      } catch (apiError) {
-                        console.warn('API权限更新失败，使用本地更新:', apiError)
-                        
-                        // API失败，本地更新
-                        const updatedFolder = {
-                          ...permissionFolder,
-                          visibility: value
-                        }
-                        setPermissionFolder(updatedFolder)
-                        setFolders(prev => prev.map(f => 
-                          f.id === permissionFolder.id ? updatedFolder : f
-                        ))
-                        
-                        // 保存到localStorage - 确保正确更新
-                        const existingFolders = JSON.parse(localStorage.getItem('folders') || '[]')
-                        const updatedFolders = existingFolders.map((f: any) => 
-                          f.id === permissionFolder.id ? { ...f, visibility: value } : f
-                        )
-                        localStorage.setItem('folders', JSON.stringify(updatedFolders))
-                        
-                        // 触发存储事件，通知其他组件更新
-                        window.dispatchEvent(new CustomEvent('folderPermissionUpdated', {
-                          detail: { folderId: permissionFolder.id, visibility: value }
-                        }))
-                        
-                        toast({
-                          title: "权限更新成功",
-                          description: `文件夹 "${permissionFolder.name}" 的可见性已更新（本地保存）`,
-                        })
-                      }
-                    } catch (error) {
-                      console.error('权限更新失败:', error)
-                      toast({
-                        title: "权限更新失败",
-                        description: "更新文件夹权限时发生错误",
-                        variant: "destructive",
-                      })
-                    }
-                  }
-                }}
+                onValueChange={(value: 'public' | 'private') => handlePermissionChange(value)}
               >
                 <SelectTrigger>
                   <SelectValue />
